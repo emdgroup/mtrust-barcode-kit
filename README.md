@@ -1,4 +1,3 @@
-
 # Barcode-Kit
 
 <img src="https://github.com/emdgroup/mtrust-barcode-kit/raw/main/banner.png"  alt="Description" width="200">
