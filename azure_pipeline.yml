@@ -1,0 +1,82 @@
+# Xcode
+# Build, test, and archive an Xcode workspace on macOS.
+# Add steps that install certificates, test, sign, and distribute an app, save build artifacts, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/xcode
+
+trigger:
+  - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+steps:
+  # Checkout with persist credentials
+  - checkout: self
+    persistCredentials: true
+  # Install cert for packages
+  - task: DownloadSecureFile@1
+    name: private
+    inputs:
+      secureFile: "pipeline_rsa"
+  - task: DownloadSecureFile@1
+    name: public
+    inputs:
+      secureFile: "pipeline_rsa.pub"
+
+  - script: |
+      mkdir ~/.ssh/
+
+      cp $(private.secureFilePath) ~/.ssh/id_rsa
+      chmod 400 ~/.ssh/id_rsa
+      cp $(public.secureFilePath) ~/.ssh/id_rsa.pub
+
+  - script: |
+      git config --global user.email "pipeline@mtrust.com"
+      git config --global user.name "Azure Pipeline M-Trust"
+
+  # Install Flutter
+  - task: FlutterInstall@0
+    inputs:
+      mode: "auto"
+      channel: "stable"
+      version: "latest"
+  # Get packages
+  - task: FlutterCommand@0
+    inputs:
+      projectDirectory: "."
+      arguments: "pub get"
+
+  # Build runner
+  - task: FlutterCommand@0
+    inputs:
+      projectDirectory: "."
+      arguments: |
+        pub run pigeon \
+        --input pigeons/barcode_kit_pigeon.dart \
+        --dart_out lib/src/pigeon.dart \
+        --experimental_swift_out ios/Classes/Pigeon.swift \
+        --experimental_kotlin_out android/src/main/kotlin/com/emddigital/barcode_kit/pigeon/Pigeon.kt \
+        --java_package "com.emddigital.barcode_kit.pigeon" "
+  # Install NPM
+  - task: Npm@1
+    inputs:
+      command: "install"
+  # Run release cmd
+  - task: Npm@1
+    inputs:
+      command: "custom"
+      customCommand: "run release"
+  # Get packages
+  - task: FlutterCommand@0
+    inputs:
+      projectDirectory: "example"
+      arguments: "pub get"
+
+  ## Android build and distribute
+  - task: FlutterBuild@0
+    inputs:
+      target: "apk"
+      projectDirectory: "example"
+      arguments: "--release"
+  # Push tags
+  - script: 'git -c http.extraheader="AUTHORIZATION: bearer $(System.AccessToken)" push --follow-tags origin HEAD:$(Build.SourceBranchName)'

@@ -1,0 +1,28 @@
+name: mtrust_barcode_kit
+description: Barcode-Kit is a flutter package that allows you to read barcodes using the camera. It uses native textures to display the camera feed and the barcode overlay. It is built on top of the Google ML Kit and iOS Vision for barcode scanning.
+version: 2.0.1-0
+repository: https://github.com/emdgroup/mtrust-barcode-kit
+environment:
+  sdk: ">=3.3.1 <4.0.0"
+  flutter: ">=3.3.0"
+dependencies:
+  equatable: ^2.0.5
+  flutter:
+    sdk: flutter
+  native_device_orientation: ^2.0.3
+  permission_handler: ^11.3.1
+  plugin_platform_interface: ^2.1.8
+dev_dependencies:
+  flutter_lints: ^2.0.0
+  flutter_test:
+    sdk: flutter
+  pigeon: ^10.1.0
+  very_good_analysis: ^5.0.0+1
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.emddigital.barcode_kit
+        pluginClass: BarcodeKitPlugin
+      ios:
+        pluginClass: BarcodeKitPlugin

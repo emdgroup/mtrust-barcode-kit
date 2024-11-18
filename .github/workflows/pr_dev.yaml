@@ -1,0 +1,68 @@
+name: Dev - ↩️ pull request
+
+on:
+  pull_request:
+    branches:
+      - dev
+
+jobs:
+  validate_pr:
+    permissions:
+      pull-requests: write
+    uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/semantic_pull_request.yml@v1
+
+  build_example:
+    name: Build Example
+    needs: validate_pr
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Prepare Flutter
+        uses: emdgroup/mtrust-urp/.github/actions/prepare-flutter@main
+        with:
+          directory: example
+
+      - name: Run static analysis
+        run: |
+          cd example
+          flutter analyze --no-fatal-warnings
+        shell: bash
+
+      - name: Check licenses
+        uses: emdgroup/mtrust-urp/.github/actions/check-dart-licenses@main
+        with:
+          directory: example
+
+  build_library:
+    name: Build Library
+    needs: validate_pr
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Prepare Flutter
+        uses: emdgroup/mtrust-urp/.github/actions/prepare-flutter@main
+        with:
+          directory: .
+
+      - name: Validate Flutter
+        uses: emdgroup/mtrust-urp/.github/actions/validate-flutter@main
+        with:
+          directory: .
+          is_package: true
+
+      - name: Check licenses
+        uses: emdgroup/mtrust-urp/.github/actions/check-dart-licenses@main
+        with:
+          directory: .

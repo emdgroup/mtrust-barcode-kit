@@ -1,0 +1,39 @@
+{
+    "devDependencies": {
+        "cz-conventional-changelog": "^3.3.0"
+    },
+    "name": "barcode_kit",
+    "description": "Barcode-Kit is a flutter package that allows you to read barcodes using the camera. It uses native textures to display the camera feed and the barcode overlay. It is built on top of the Google ML Kit and iOS Vision for barcode scanning.",
+    "version": "2.0.1",
+    "private": true,
+    "main": "index.js",
+    "directories": {
+        "lib": "lib",
+        "test": "test"
+    },
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "commit": "cz",
+        "release": "standard-version"
+    },
+    "standard-version": {
+        "scripts": {
+            "pretag": "node dart_version.js && git add . && git commit -m \"chore: update version in pubspec and lib [skip_ci]\""
+        }
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://dev.azure.com/M-Trust/Flutter%20Packages/_git/barcode_kit"
+    },
+    "author": "",
+    "license": "ISC",
+    "config": {
+        "commitizen": {
+            "path": "./node_modules/cz-conventional-changelog"
+        }
+    },
+    "dependencies": {
+        "standard-version": "^9.5.0",
+        "yaml": "^2.2.2"
+    }
+}
