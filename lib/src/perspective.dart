@@ -137,6 +137,7 @@ class PerspectiveTransform extends Equatable {
   List<Object?> get props => [_matrix];
 }
 
+// ignore: must_be_immutable
 class _PerspectiveMatrix extends ListBase<double> with EquatableMixin {
   _PerspectiveMatrix(List<List<double>> matrix)
       : _values = matrix.reduce((value, element) => [...value, ...element]);
