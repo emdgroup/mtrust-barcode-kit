@@ -357,7 +357,9 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
   void dispose() {
     _barcodeKitPlugin
       ..closeCamera()
+      ..onTextDetectedCallback = null
       ..onBarcodeScannedCallback = null;
+    _animationController.dispose();
     super.dispose();
   }
 
@@ -385,7 +387,7 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
         ).value;
         return ColorFiltered(
           colorFilter: ColorFilter.mode(
-            widget.backdropColor.withOpacity(value * 0.2),
+            widget.backdropColor.withAlpha((value * 55).toInt()),
             BlendMode.srcATop,
           ),
           child: ImageFiltered(

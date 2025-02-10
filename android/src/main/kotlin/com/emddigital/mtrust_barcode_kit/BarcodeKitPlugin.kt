@@ -1,4 +1,4 @@
-package com.emddigital.barcode_kit
+package com.emddigital.mtrust_barcode_kit
 
 
 import BarcodeFormat
@@ -44,13 +44,13 @@ val barcodeFormatMap = hashMapOf<BarcodeFormat, Int>(
     BarcodeFormat.CODE39 to Barcode.FORMAT_CODE_39,
     BarcodeFormat.CODE93 to Barcode.FORMAT_CODE_93,
     BarcodeFormat.CODE128 to Barcode.FORMAT_CODE_128,
-    BarcodeFormat.DATAMATRIX to Barcode.FORMAT_DATA_MATRIX,
+    BarcodeFormat.DATA_MATRIX to Barcode.FORMAT_DATA_MATRIX,
     BarcodeFormat.EAN8 to Barcode.FORMAT_EAN_8,
     BarcodeFormat.EAN13 to Barcode.FORMAT_EAN_13,
     BarcodeFormat.PDF417 to Barcode.FORMAT_PDF417,
-    BarcodeFormat.QRCODE to Barcode.FORMAT_QR_CODE,
-    BarcodeFormat.UPCA to Barcode.FORMAT_UPC_A,
-    BarcodeFormat.UPCE to Barcode.FORMAT_UPC_E,
+    BarcodeFormat.QR_CODE to Barcode.FORMAT_QR_CODE,
+    BarcodeFormat.UPC_A to Barcode.FORMAT_UPC_A,
+    BarcodeFormat.UPC_E to Barcode.FORMAT_UPC_E,
     BarcodeFormat.ITF to Barcode.FORMAT_ITF
 )
 

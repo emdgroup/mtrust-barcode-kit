@@ -206,7 +206,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
                             
                             
                             DispatchQueue.main.async {
-                                self.flutterApi.onTextDetected(text: topCandidate.string,completion: {
+                                self.flutterApi.onTextDetected(text: topCandidate.string,completion: {_ in 
                                     
                                 })
                             }
@@ -269,7 +269,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
                     })?.key,
                     textValue: barcodeMetadataObject.stringValue
                 )
-                flutterApi.onBarcodeScanned(barcode: barcode,completion: {
+                flutterApi.onBarcodeScanned(barcode: barcode,completion: {_ in 
                     
                 })
             }
@@ -294,7 +294,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
         case "torchMode":
             // off = 0; on = 1; auto = 2;
             let state = change?[.newKey] as? Int
-            flutterApi.onTorchStateChanged(enabled: state == 1, completion: {
+            flutterApi.onTorchStateChanged(enabled: state == 1, completion: {_ in 
                 
             })
             
