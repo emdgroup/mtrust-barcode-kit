@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### 2.0.3-0 (2025-02-10)
+
+
+### Bug Fixes
+
+* animation controller, callback disposal ([#1](https://dev.azure.com//null/issues/1)) ([aa0a72b](https://dev.azure.com///commit/aa0a72bc3e2be6bbc1c80ec8cd8b702cdaca78ce))
+
 ### 2.0.2 (2024-11-18)
 
 ### [2.0.1-0](v2.0.1-0) (2024-10-08)
