@@ -357,6 +357,7 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
   void dispose() {
     _barcodeKitPlugin
       ..closeCamera()
+      ..onTextDetectedCallback = null
       ..onBarcodeScannedCallback = null;
     _animationController.dispose();
     super.dispose();
