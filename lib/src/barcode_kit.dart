@@ -15,7 +15,7 @@ typedef OnTextDetectedCallback = void Function(String text);
 class BarcodeKit extends BarcodeKitFlutterApi {
   /// Create a new instance of the plugin.
   BarcodeKit() {
-    BarcodeKitFlutterApi.setup(this);
+    BarcodeKitFlutterApi.setUp(this);
   }
   final BarcodeKitHostApi _host = BarcodeKitHostApi();
 
