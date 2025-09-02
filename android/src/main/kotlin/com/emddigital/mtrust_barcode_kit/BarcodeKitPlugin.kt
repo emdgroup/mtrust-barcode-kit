@@ -197,18 +197,47 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
                 .build().apply { setAnalyzer(executor, analyzer) }
             // Bind to lifecycle.
 
-
+            // Build camera selector with fallback logic
             var cameraSelectorBuilder = CameraSelector.Builder()
-
-            cameraSelectorBuilder = when (direction) {
-                CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
-                CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
-                CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
-
+            
+            // Try to get the requested camera direction, with fallback to available cameras
+            try {
+                cameraSelectorBuilder = when (direction) {
+                    CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                    CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
+                    CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                    CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
+                }
+                
+                cameraSelector = cameraSelectorBuilder.build()
+                
+                // Check if the selected camera is available
+                if (!cameraProvider!!.hasCamera(cameraSelector!!)) {
+                    throw IllegalArgumentException("Requested camera not available")
+                }
+            } catch (e: Exception) {
+                // Fallback: try to find any available camera                
+                val fallbackSelectors = listOf(
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    CameraSelector.DEFAULT_FRONT_CAMERA
+                )
+                
+                var fallbackSelector: CameraSelector? = null
+                for (selector in fallbackSelectors) {
+                    if (cameraProvider!!.hasCamera(selector)) {
+                        fallbackSelector = selector
+                        break
+                    }
+                }
+                
+                if (fallbackSelector == null) {
+                    callback(Result.failure(RuntimeException("No camera available on this device")))
+                    return@addListener
+                }
+                
+                cameraSelector = fallbackSelector
             }
 
-            cameraSelector = cameraSelectorBuilder.build()
             val camera = attachCamera()
 
             @SuppressLint("RestrictedApi")
