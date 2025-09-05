@@ -135,7 +135,8 @@ class BarcodeKitView extends StatefulWidget {
   /// Direction of the camera
   final CameraLensDirection direction;
 
-  /// Fallback camera directions to try if the primary direction is not available
+  /// Fallback camera directions to try if the primary direction is not
+  /// available
   final List<CameraLensDirection> fallbackDirections;
 
   /// The formats that should be scanned
