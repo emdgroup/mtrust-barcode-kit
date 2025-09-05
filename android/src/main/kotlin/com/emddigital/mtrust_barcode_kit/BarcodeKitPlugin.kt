@@ -169,6 +169,7 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
     override fun openCamera(
         direction: CameraLensDirection,
         formats: List<Long>,
+        fallbackDirections: List<CameraLensDirection>,
         callback: (Result<CameraOpenResponse>) -> Unit
     ) {
         // Close potential existing camera instance
@@ -200,42 +201,39 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
             // Build camera selector with fallback logic
             var cameraSelectorBuilder = CameraSelector.Builder()
             
-            // Try to get the requested camera direction, with fallback to available cameras
-            try {
-                cameraSelectorBuilder = when (direction) {
-                    CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                    CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
-                    CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
-                    CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
-                }
-                
-                cameraSelector = cameraSelectorBuilder.build()
-                
-                // Check if the selected camera is available
-                if (!cameraProvider!!.hasCamera(cameraSelector!!)) {
-                    throw IllegalArgumentException("Requested camera not available")
-                }
-            } catch (e: Exception) {
-                // Fallback: try to find any available camera                
-                val fallbackSelectors = listOf(
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    CameraSelector.DEFAULT_FRONT_CAMERA
-                )
-                
-                var fallbackSelector: CameraSelector? = null
-                for (selector in fallbackSelectors) {
-                    if (cameraProvider!!.hasCamera(selector)) {
-                        fallbackSelector = selector
+            // Try to get the requested camera direction, with fallback to provided fallback directions
+            val directionsToTry = mutableListOf(direction)
+            directionsToTry.addAll(fallbackDirections)
+            
+            var foundCamera = false
+            
+            for (directionToTry in directionsToTry) {
+                try {
+                    cameraSelectorBuilder = CameraSelector.Builder()
+                    cameraSelectorBuilder = when (directionToTry) {
+                        CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                        CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
+                        CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                        CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
+                    }
+                    
+                    val potentialSelector = cameraSelectorBuilder.build()
+                    
+                    // Check if this camera is available
+                    if (cameraProvider!!.hasCamera(potentialSelector)) {
+                        cameraSelector = potentialSelector
+                        foundCamera = true
                         break
                     }
+                } catch (e: Exception) {
+                    // Continue to next direction
+                    continue
                 }
-                
-                if (fallbackSelector == null) {
-                    callback(Result.failure(RuntimeException("No camera available on this device")))
-                    return@addListener
-                }
-                
-                cameraSelector = fallbackSelector
+            }
+            
+            if (!foundCamera) {
+                callback(Result.failure(RuntimeException("No suitable camera available from the provided directions")))
+                return@addListener
             }
 
             val camera = attachCamera()

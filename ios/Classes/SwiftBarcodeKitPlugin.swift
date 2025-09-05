@@ -70,27 +70,37 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
     
 
     
-    func openCamera(direction: CameraLensDirection,formats: [Int64] , completion: @escaping (Result<CameraOpenResponse, Error>) -> Void) {
+    func openCamera(direction: CameraLensDirection, formats: [Int64], fallbackDirections: [CameraLensDirection], completion: @escaping (Result<CameraOpenResponse, Error>) -> Void) {
         textureId = registry!.register(self)
         captureSession = AVCaptureSession()
         
-        let position = direction == .front ? AVCaptureDevice.Position.front : .back
+        // Try the primary direction first, then fallback directions
+        let directionsToTry = [direction] + fallbackDirections
+        var selectedDevice: AVCaptureDevice? = nil
         
-        
-        var devices: [AVCaptureDevice] = []
-        
-        if #available(iOS 10.0, *) {
-            devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: position).devices
-        } else {
-            devices = AVCaptureDevice.devices(for: .video).filter({$0.position == position})
+        for directionToTry in directionsToTry {
+            let position = directionToTry == .front ? AVCaptureDevice.Position.front : .back
+            
+            var devices: [AVCaptureDevice] = []
+            
+            if #available(iOS 10.0, *) {
+                devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: position).devices
+            } else {
+                devices = AVCaptureDevice.devices(for: .video).filter({$0.position == position})
+            }
+            
+            if !devices.isEmpty {
+                selectedDevice = devices.first
+                break
+            }
         }
         
-        if(devices.isEmpty){
-            completion(.failure(NSError(domain: "BarcodeKit", code: 1, userInfo: ["message": "No camera found"])))
+        if selectedDevice == nil {
+            completion(.failure(NSError(domain: "BarcodeKit", code: 1, userInfo: ["message": "No suitable camera found from the provided directions"])))
             return
-        }else{
-            device = devices.first
         }
+        
+        device = selectedDevice!
         
         device!.addObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode), options: .new, context: nil)
         captureSession!.beginConfiguration()

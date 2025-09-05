@@ -125,6 +125,7 @@ class BarcodeKitView extends StatefulWidget {
     this.cameraFit = BoxFit.cover,
     this.enableOCR = false,
     this.direction = CameraLensDirection.back,
+    this.fallbackDirections = const [CameraLensDirection.front],
     this.widgetAboveMask,
     this.widgetBelowMask,
     this.maskAdditionpauseOpacity = 0.1,
@@ -133,6 +134,9 @@ class BarcodeKitView extends StatefulWidget {
 
   /// Direction of the camera
   final CameraLensDirection direction;
+
+  /// Fallback camera directions to try if the primary direction is not available
+  final List<CameraLensDirection> fallbackDirections;
 
   /// The formats that should be scanned
   final Set<BarcodeFormat> formats;
@@ -249,8 +253,9 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
 
     try {
       final value = await _barcodeKitPlugin.openCamera(
-        CameraLensDirection.back,
+        widget.direction,
         widget.formats.toList(),
+        widget.fallbackDirections,
       );
       setState(() {
         textureId = int.parse(value.textureId!);
@@ -303,7 +308,9 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
       _barcodeKitPlugin.setOCREnabled(widget.enableOCR);
     }
 
-    if (!setEquals(widget.formats, _lastFormats)) {
+    if (!setEquals(widget.formats, _lastFormats) ||
+        widget.direction != oldWidget.direction ||
+        !listEquals(widget.fallbackDirections, oldWidget.fallbackDirections)) {
       _barcodeKitPlugin.closeCamera();
       _start();
     }

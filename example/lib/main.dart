@@ -1,7 +1,6 @@
-import 'package:mtrust_barcode_kit/mtrust_barcode_kit.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mtrust_barcode_kit/mtrust_barcode_kit.dart';
 
 class _Ui extends BarcodeKitUiBuilder {
   @override
