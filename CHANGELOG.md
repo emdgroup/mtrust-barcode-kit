@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## 2.1.0-0 (2025-09-08)
+
+
+### Features
+
+* enhance BarcodeKitView to support fallback directions for improved control over camera availability ([114786b](https://dev.azure.com///commit/114786b7ea17566bc4e60c363243e9b2d37e9bae))
+
+
+### Bug Fixes
+
+* add camera fallback logic and update gradle configs ([4d80acd](https://dev.azure.com///commit/4d80acd636a82cb6ae19bfa80c76684a770a4804))
+* add namespace to android configuration in build.gradle ([7ee23aa](https://dev.azure.com///commit/7ee23aaffd204d896b784ee36432d536ed7b486f))
+* animation controller, callback disposal ([#1](https://dev.azure.com//null/issues/1)) ([aa0a72b](https://dev.azure.com///commit/aa0a72bc3e2be6bbc1c80ec8cd8b702cdaca78ce))
+* correctly handle fallback directions on iOS ([20973ff](https://dev.azure.com///commit/20973ffaa0f1d1d979ec1f8b0b0e2b47d7f7e91b))
+* enhance camera selection logic with fallback for unavailable cameras ([f9de003](https://dev.azure.com///commit/f9de0033a840a7cf749258efe3b816bbb6c73ed8))
+* migrate to Kotlin DSL (build.gradle.kts) update gradle version ([16f7ed0](https://dev.azure.com///commit/16f7ed0e75b59cec011a59c4dc5b41cce35e6a3d))
+* update build.gradle and pubspec.lock for improved compatibility and dependency management ([4f3b6ef](https://dev.azure.com///commit/4f3b6ef70b6caeefed3bf96af217e50091c4b1b9))
+* update build.gradle to align with Flutter configuration ([121aa7e](https://dev.azure.com///commit/121aa7e9c7b27ddea7f4a477c9f214fc6668323c))
+* update permission_handler dependency to resolve build issue with newer flutter versions ([5704eda](https://dev.azure.com///commit/5704edaaf90227ab9d32749ea6dc48dca8290565))
+
 ### 2.0.3-0 (2025-02-10)
 
 
