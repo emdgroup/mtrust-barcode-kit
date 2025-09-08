@@ -77,6 +77,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
         // Try the primary direction first, then fallback directions
         let directionsToTry = [direction] + fallbackDirections
         var selectedDevice: AVCaptureDevice? = nil
+        var selectedPosition: AVCaptureDevice.Position = .back
         
         for directionToTry in directionsToTry {
             let position = directionToTry == .front ? AVCaptureDevice.Position.front : .back
@@ -91,6 +92,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
             
             if !devices.isEmpty {
                 selectedDevice = devices.first
+                selectedPosition = position
                 break
             }
         }
@@ -119,7 +121,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
         captureSession!.addOutput(videoOutput)
         for connection in videoOutput.connections {
             connection.videoOrientation = .portrait
-            if position == .front && connection.isVideoMirroringSupported {
+            if selectedPosition == .front && connection.isVideoMirroringSupported {
                 connection.isVideoMirrored = true
             }
         }
