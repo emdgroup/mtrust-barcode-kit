@@ -44,6 +44,7 @@ abstract class BarcodeKitHostApi {
   CameraOpenResponse openCamera(
     CameraLensDirection direction,
     List<int> formats,
+    List<CameraLensDirection> fallbackDirections,
   );
 
   // ignore: avoid_positional_boolean_parameters

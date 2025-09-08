@@ -169,6 +169,7 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
     override fun openCamera(
         direction: CameraLensDirection,
         formats: List<Long>,
+        fallbackDirections: List<CameraLensDirection>,
         callback: (Result<CameraOpenResponse>) -> Unit
     ) {
         // Close potential existing camera instance
@@ -197,18 +198,44 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
                 .build().apply { setAnalyzer(executor, analyzer) }
             // Bind to lifecycle.
 
-
+            // Build camera selector with fallback logic
             var cameraSelectorBuilder = CameraSelector.Builder()
-
-            cameraSelectorBuilder = when (direction) {
-                CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
-                CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
-                CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
-
+            
+            // Try to get the requested camera direction, with fallback to provided fallback directions
+            val directionsToTry = mutableListOf(direction)
+            directionsToTry.addAll(fallbackDirections)
+            
+            var foundCamera = false
+            
+            for (directionToTry in directionsToTry) {
+                try {
+                    cameraSelectorBuilder = CameraSelector.Builder()
+                    cameraSelectorBuilder = when (directionToTry) {
+                        CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                        CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
+                        CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                        CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
+                    }
+                    
+                    val potentialSelector = cameraSelectorBuilder.build()
+                    
+                    // Check if this camera is available
+                    if (cameraProvider!!.hasCamera(potentialSelector)) {
+                        cameraSelector = potentialSelector
+                        foundCamera = true
+                        break
+                    }
+                } catch (e: Exception) {
+                    // Continue to next direction
+                    continue
+                }
+            }
+            
+            if (!foundCamera) {
+                callback(Result.failure(RuntimeException("No suitable camera available from the provided directions")))
+                return@addListener
             }
 
-            cameraSelector = cameraSelectorBuilder.build()
             val camera = attachCamera()
 
             @SuppressLint("RestrictedApi")
