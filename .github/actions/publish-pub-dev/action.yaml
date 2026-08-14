@@ -1,0 +1,29 @@
+name: Publish package to pub.dev
+description: Install Flutter, get dependencies, and publish to pub.dev
+inputs:
+  flutter_version:
+    description: "Flutter version to use"
+    required: true
+  publish_mode:
+    description: "Publish mode: --dry-run or --force"
+    default: "--dry-run"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Dart (configures pub.dev OIDC token)
+      uses: dart-lang/setup-dart@v1
+
+    - name: Install Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ inputs.flutter_version }}
+        cache: true
+
+    - name: Get dependencies
+      shell: bash
+      run: flutter pub get
+
+    - name: Publish to pub.dev
+      shell: bash
+      run: dart pub publish ${{ inputs.publish_mode }}

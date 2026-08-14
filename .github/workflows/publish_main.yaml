@@ -19,8 +19,7 @@ jobs:
           token: ${{secrets.ELEVATED_TOKEN}}
 
       - name: Publish mtrust_barcode_kit
-        uses: emdgroup/mtrust-urp/.github/actions/publish-pub-dev@main
+        uses: ./.github/actions/publish-pub-dev
         with:
-          directory: "."
           publish_mode: --force
           flutter_version: ${{ vars.FLUTTER_VERSION }}
