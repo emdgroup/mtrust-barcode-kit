@@ -70,27 +70,39 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     
 
     
-    func openCamera(direction: CameraLensDirection,formats: [Int64] , completion: @escaping (Result<CameraOpenResponse, Error>) -> Void) {
+    func openCamera(direction: CameraLensDirection, formats: [Int64], fallbackDirections: [CameraLensDirection], completion: @escaping (Result<CameraOpenResponse, Error>) -> Void) {
         textureId = registry!.register(self)
         captureSession = AVCaptureSession()
         
-        let position = direction == .front ? AVCaptureDevice.Position.front : .back
+        // Try the primary direction first, then fallback directions
+        let directionsToTry = [direction] + fallbackDirections
+        var selectedDevice: AVCaptureDevice? = nil
+        var selectedPosition: AVCaptureDevice.Position = .back
         
-        
-        var devices: [AVCaptureDevice] = []
-        
-        if #available(iOS 10.0, *) {
-            devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: position).devices
-        } else {
-            devices = AVCaptureDevice.devices(for: .video).filter({$0.position == position})
+        for directionToTry in directionsToTry {
+            let position = directionToTry == .front ? AVCaptureDevice.Position.front : .back
+            
+            var devices: [AVCaptureDevice] = []
+            
+            if #available(iOS 10.0, *) {
+                devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: position).devices
+            } else {
+                devices = AVCaptureDevice.devices(for: .video).filter({$0.position == position})
+            }
+            
+            if !devices.isEmpty {
+                selectedDevice = devices.first
+                selectedPosition = position
+                break
+            }
         }
         
-        if(devices.isEmpty){
-            completion(.failure(NSError(domain: "BarcodeKit", code: 1, userInfo: ["message": "No camera found"])))
+        if selectedDevice == nil {
+            completion(.failure(NSError(domain: "BarcodeKit", code: 1, userInfo: ["message": "No suitable camera found from the provided directions"])))
             return
-        }else{
-            device = devices.first
         }
+        
+        device = selectedDevice!
         
         device!.addObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode), options: .new, context: nil)
         captureSession!.beginConfiguration()
@@ -109,7 +121,7 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
         captureSession!.addOutput(videoOutput)
         for connection in videoOutput.connections {
             connection.videoOrientation = .portrait
-            if position == .front && connection.isVideoMirroringSupported {
+            if selectedPosition == .front && connection.isVideoMirroringSupported {
                 connection.isVideoMirrored = true
             }
         }
@@ -206,7 +218,7 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
                             
                             
                             DispatchQueue.main.async {
-                                self.flutterApi.onTextDetected(text: topCandidate.string,completion: {
+                                self.flutterApi.onTextDetected(text: topCandidate.string,completion: {_ in 
                                     
                                 })
                             }
@@ -269,7 +281,7 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
                     })?.key,
                     textValue: barcodeMetadataObject.stringValue
                 )
-                flutterApi.onBarcodeScanned(barcode: barcode,completion: {
+                flutterApi.onBarcodeScanned(barcode: barcode,completion: {_ in 
                     
                 })
             }
@@ -294,7 +306,7 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
         case "torchMode":
             // off = 0; on = 1; auto = 2;
             let state = change?[.newKey] as? Int
-            flutterApi.onTorchStateChanged(enabled: state == 1, completion: {
+            flutterApi.onTorchStateChanged(enabled: state == 1, completion: {_ in 
                 
             })
             

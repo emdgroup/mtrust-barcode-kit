@@ -15,7 +15,7 @@ typedef OnTextDetectedCallback = void Function(String text);
 class BarcodeKit extends BarcodeKitFlutterApi {
   /// Create a new instance of the plugin.
   BarcodeKit() {
-    BarcodeKitFlutterApi.setup(this);
+    BarcodeKitFlutterApi.setUp(this);
   }
   final BarcodeKitHostApi _host = BarcodeKitHostApi();
 
@@ -49,11 +49,13 @@ class BarcodeKit extends BarcodeKitFlutterApi {
   /// Opens the camera in [direction] and scans for [formats].
   Future<CameraOpenResponse> openCamera(
     CameraLensDirection direction,
-    List<BarcodeFormat> formats,
-  ) async {
+    List<BarcodeFormat> formats, [
+    List<CameraLensDirection> fallbackDirections = const [],
+  ]) async {
     return _host.openCamera(
       direction,
       formats.map((e) => e.index).toList(),
+      fallbackDirections,
     );
   }
 

@@ -1,4 +1,4 @@
-package com.emddigital.barcode_kit
+package com.emddigital.mtrust_barcode_kit
 
 
 import BarcodeFormat
@@ -44,13 +44,13 @@ val barcodeFormatMap = hashMapOf<BarcodeFormat, Int>(
     BarcodeFormat.CODE39 to Barcode.FORMAT_CODE_39,
     BarcodeFormat.CODE93 to Barcode.FORMAT_CODE_93,
     BarcodeFormat.CODE128 to Barcode.FORMAT_CODE_128,
-    BarcodeFormat.DATAMATRIX to Barcode.FORMAT_DATA_MATRIX,
+    BarcodeFormat.DATA_MATRIX to Barcode.FORMAT_DATA_MATRIX,
     BarcodeFormat.EAN8 to Barcode.FORMAT_EAN_8,
     BarcodeFormat.EAN13 to Barcode.FORMAT_EAN_13,
     BarcodeFormat.PDF417 to Barcode.FORMAT_PDF417,
-    BarcodeFormat.QRCODE to Barcode.FORMAT_QR_CODE,
-    BarcodeFormat.UPCA to Barcode.FORMAT_UPC_A,
-    BarcodeFormat.UPCE to Barcode.FORMAT_UPC_E,
+    BarcodeFormat.QR_CODE to Barcode.FORMAT_QR_CODE,
+    BarcodeFormat.UPC_A to Barcode.FORMAT_UPC_A,
+    BarcodeFormat.UPC_E to Barcode.FORMAT_UPC_E,
     BarcodeFormat.ITF to Barcode.FORMAT_ITF
 )
 
@@ -169,6 +169,7 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
     override fun openCamera(
         direction: CameraLensDirection,
         formats: List<Long>,
+        fallbackDirections: List<CameraLensDirection>,
         callback: (Result<CameraOpenResponse>) -> Unit
     ) {
         // Close potential existing camera instance
@@ -197,18 +198,44 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
                 .build().apply { setAnalyzer(executor, analyzer) }
             // Bind to lifecycle.
 
-
+            // Build camera selector with fallback logic
             var cameraSelectorBuilder = CameraSelector.Builder()
-
-            cameraSelectorBuilder = when (direction) {
-                CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
-                CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
-                CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
-
+            
+            // Try to get the requested camera direction, with fallback to provided fallback directions
+            val directionsToTry = mutableListOf(direction)
+            directionsToTry.addAll(fallbackDirections)
+            
+            var foundCamera = false
+            
+            for (directionToTry in directionsToTry) {
+                try {
+                    cameraSelectorBuilder = CameraSelector.Builder()
+                    cameraSelectorBuilder = when (directionToTry) {
+                        CameraLensDirection.BACK -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                        CameraLensDirection.EXT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_EXTERNAL)
+                        CameraLensDirection.FRONT -> cameraSelectorBuilder.requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                        CameraLensDirection.UNKNOWN -> cameraSelectorBuilder
+                    }
+                    
+                    val potentialSelector = cameraSelectorBuilder.build()
+                    
+                    // Check if this camera is available
+                    if (cameraProvider!!.hasCamera(potentialSelector)) {
+                        cameraSelector = potentialSelector
+                        foundCamera = true
+                        break
+                    }
+                } catch (e: Exception) {
+                    // Continue to next direction
+                    continue
+                }
+            }
+            
+            if (!foundCamera) {
+                callback(Result.failure(RuntimeException("No suitable camera available from the provided directions")))
+                return@addListener
             }
 
-            cameraSelector = cameraSelectorBuilder.build()
             val camera = attachCamera()
 
             @SuppressLint("RestrictedApi")

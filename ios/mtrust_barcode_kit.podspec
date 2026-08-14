@@ -5,13 +5,16 @@
 Pod::Spec.new do |s|
   s.name             = 'mtrust_barcode_kit'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter plugin project.'
+  s.summary          = 'Read barcodes using the camera'
   s.description      = <<-DESC
-A new Flutter plugin project.
+  Barcode-Kit is a flutter package that allows you to read barcodes 
+  using the camera. It uses native textures to display the camera feed and the
+  barcode overlay. It is built on top of the Google ML Kit and iOS Vision for
+  barcode scanning.
                        DESC
-  s.homepage         = 'http://example.com'
+  s.homepage         = 'https://github.com/emdgroup/mtrust-barcode-kit'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'EMD Group' => 'info@emdgroup.com' }
   s.source           = { :path => '.' }
   s.source_files = 'mtrust_barcode_kit/Sources/mtrust_barcode_kit/**/*.swift'
   s.dependency 'Flutter'
