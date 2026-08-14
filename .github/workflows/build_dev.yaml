@@ -8,19 +8,22 @@ on:
 jobs:
   version:
     name: Version & Build
-    runs-on: macos-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
     environment: release
-    permissions:
-      contents: write
-
-    outputs:
-      version: ${{ steps.get_new_version.outputs.result}}
 
     steps:
+      - name: Get token for bumper app
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ vars.BUMPER_APP_ID }}
+          private-key: ${{ secrets.BUMPER_APP_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{secrets.ELEVATED_TOKEN}}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: 📇 Configure git
         run: |
@@ -28,40 +31,6 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "gh-actions@merckgroup.com"
         shell: bash
-
-      # Retrieve the new version
-      - name: 🔂 Run standard-version
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const {execSync} = require('child_process');
-            execSync('npx standard-version --skip.tag --prerelease', {stdio: 'inherit'});
-
-      # Retrieve the new version
-      - name: ⏎ Get new version
-        uses: actions/github-script@v7
-        id: get_new_version
-        with:
-          result-encoding: string
-          script: |
-            const fs = require('fs');
-            const package = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            return package.version;
-
-      - name: Print new version
-        run: echo ${{ steps.get_new_version.outputs.result}}
-
-      # Bump the pubspec.yaml file
-      - name: ⬆️ Bump pubspec.yaml
-        uses: emdgroup/mtrust-urp/.github/actions/update-pubspec@main
-        with:
-          version: ${{ steps.get_new_version.outputs.result }}
-          directory: .
-
-      - name: 📝 Update version in readme
-        uses: emdgroup/mtrust-urp/.github/actions/update-pubspec-readme-version@main
-        with:
-          directory: .
 
       - name: Install Flutter
         uses: subosito/flutter-action@v2
@@ -84,17 +53,50 @@ jobs:
         with:
           directory: "."
 
-      #  We first commit with proper message and add an empty commit to keep the files history clean
-      - name: Update repo versions
-        run: |
-          git add . 
-          git commit -m "chore(release): ${{ steps.get_new_version.outputs.result }}"
-          git commit --allow-empty -m "chore(release): ${{ steps.get_new_version.outputs.result }} [skip ci]"
-          git push origin dev
+      - name: Install mtrust_api_guard
+        run: dart pub global activate mtrust_api_guard
 
-      #  For this part it is important to not push a commit with [skip ci] before the tag release
-      - name: Push tag for pub.dev
+      - name: 🔢 Version package
         run: |
-          git commit --allow-empty -m "chore(release): ${{ steps.get_new_version.outputs.result }}"
-          git tag -a v${{ steps.get_new_version.outputs.result }} -m "Pub.dev version ${{ steps.get_new_version.outputs.result }}"
-          git push origin v${{ steps.get_new_version.outputs.result }}
+          mtrust_api_guard version \
+            --badge \
+            --commit \
+            --tag \
+            --generate-changelog \
+            --pre-release \
+            --pre-release-prefix "" \
+            --tag-prefix "v"
+
+      - name: Push branch to remote
+        run: git push origin dev
+
+      - name: Push tags to remote
+        run: git push origin --tags
+
+  rebase_dev:
+    name: Write changes to dev branch
+    needs: [version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{secrets.ELEVATED_TOKEN}}
+
+      - name: Setup Git User
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "gh-actions@merckgroup.com"
+
+      - name: Update Test Branch
+        run: |
+          git checkout main
+          git fetch origin
+          git checkout dev
+          git pull
+          git merge origin/main
+          git push origin dev

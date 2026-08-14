@@ -10,3 +10,7 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+
+api_guard:
+  entry_points:
+    - lib/mtrust_barcode_kit.dart
