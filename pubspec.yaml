@@ -7,13 +7,13 @@ version: 2.1.0-0
 repository: https://github.com/emdgroup/mtrust-barcode-kit
 environment:
   sdk: ">=3.3.1 <4.0.0"
-  flutter: ">=3.3.0"
+  flutter: ">=3.44.0"
 dependencies:
-  equatable: ^2.0.5
+  equatable: ^2.1.0
   flutter:
     sdk: flutter
-  native_device_orientation: ^2.0.3
-  permission_handler: ^11.4.0
+  native_device_orientation: ^2.1.1
+  permission_handler: ^13.0.1
   plugin_platform_interface: ^2.1.8
 dev_dependencies:
   flutter_lints: ^5.0.0

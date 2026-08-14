@@ -26,8 +26,7 @@ class _Ui extends BarcodeKitUiBuilder {
   }
 
   @override
-  Widget buildNoPermission(
-      BuildContext context, Function() onSettingsRequested) {
+  Widget buildNoPermission(BuildContext context, Function() onSettingsRequested) {
     return Stack(
       children: [
         Center(
@@ -49,8 +48,7 @@ class _Ui extends BarcodeKitUiBuilder {
   }
 
   @override
-  Widget buildRequestPermission(
-      BuildContext context, Function() onPermissionRequested) {
+  Widget buildRequestPermission(BuildContext context, Function() onPermissionRequested) {
     return Stack(
       children: [
         Center(
@@ -141,19 +139,31 @@ class _BarcodeKitDemoState extends State<BarcodeKitDemo> {
           widgetAboveMask: Center(
             child: Text(
               "Look for the barcode",
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineMedium!
-                  .copyWith(color: Colors.white),
+              style: Theme.of(context).textTheme.headlineMedium!.copyWith(color: Colors.white),
             ),
           ),
           widgetBelowMask: Center(
-            child: Text(
-              "Approach barcode with camera 📸",
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyLarge!
-                  .copyWith(color: Colors.white),
+            child: Column(
+              children: [
+                Text(
+                  "Approach barcode with camera 📸",
+                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: Colors.white),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _texts.length,
+                    itemBuilder: (context, index) {
+                      return Text(
+                        _texts[index],
+                        style: const TextStyle(
+                          color: Colors.white,
+                        ),
+                        textAlign: TextAlign.center,
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
           ),
           paused: _paused,
@@ -172,8 +182,7 @@ class _BarcodeKitDemoState extends State<BarcodeKitDemo> {
             child: Row(
               children: [
                 ElevatedButton(
-                  child:
-                      _paused ? const Text("Start Scan") : const Text("Pause"),
+                  child: _paused ? const Text("Start Scan") : const Text("Pause"),
                   onPressed: () {
                     setState(() {
                       _paused = !_paused;
@@ -183,9 +192,7 @@ class _BarcodeKitDemoState extends State<BarcodeKitDemo> {
                 const Spacer(),
                 Text(_texts.lastOrNull ?? ""),
                 IconButton(
-                    icon: Icon(_rotate
-                        ? Icons.screen_rotation
-                        : Icons.screen_lock_rotation),
+                    icon: Icon(_rotate ? Icons.screen_rotation : Icons.screen_lock_rotation),
                     onPressed: () {
                       setState(() {
                         _rotate = !_rotate;

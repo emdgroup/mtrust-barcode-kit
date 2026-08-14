@@ -20,13 +20,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
-
-      - name: Prepare Flutter
-        uses: emdgroup/mtrust-urp/.github/actions/prepare-flutter@main
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
-          directory: example
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Get dependencies
+        run: |
+          flutter pub get
+          cd example && flutter pub get
+        shell: bash
 
       - name: Run static analysis
         run: |
@@ -48,13 +52,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
-
-      - name: Prepare Flutter
-        uses: emdgroup/mtrust-urp/.github/actions/prepare-flutter@main
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
         with:
-          directory: .
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+        shell: bash
 
       - name: Validate Flutter
         uses: emdgroup/mtrust-urp/.github/actions/validate-flutter@main

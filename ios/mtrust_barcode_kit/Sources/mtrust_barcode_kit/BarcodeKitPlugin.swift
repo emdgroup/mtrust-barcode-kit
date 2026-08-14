@@ -3,7 +3,7 @@ import AVFoundation
 import UIKit
 import Vision
 
-public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate{
+public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureMetadataOutputObjectsDelegate{
     
     
     public func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
@@ -40,7 +40,7 @@ public class SwiftBarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi,
     // Setup  pigeon
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger : FlutterBinaryMessenger = registrar.messenger()
-        BarcodeKitHostApiSetup.setUp(binaryMessenger: messenger, api: SwiftBarcodeKitPlugin(registrar.textures(), registrar: registrar));
+        BarcodeKitHostApiSetup.setUp(binaryMessenger: messenger, api: BarcodeKitPlugin(registrar.textures(), registrar: registrar));
         
     }
     
