@@ -1,0 +1,117 @@
+name: Build and Version
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        description: "Branch to push the version bump commit to"
+        required: true
+      pre_release:
+        type: boolean
+        description: "Whether to produce a pre-release version"
+        default: false
+      app_id:
+        type: string
+        description: "GitHub App ID for the bumper bot"
+        required: true
+    secrets:
+      app_private_key:
+        description: "GitHub App private key for the bumper bot"
+        required: true
+
+jobs:
+  version:
+    name: Version & Build
+    runs-on: ubuntu-latest
+    environment: release
+
+    steps:
+      - name: Get token for bumper app
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ inputs.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 📇 Configure git
+        run: |
+          git fetch --prune --unshallow
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "gh-actions@merckgroup.com"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Validate Flutter
+        uses: emdgroup/mtrust-urp/.github/actions/validate-flutter@main
+        with:
+          directory: "."
+          is_package: true
+
+      - name: Check licenses
+        uses: emdgroup/mtrust-urp/.github/actions/check-dart-licenses@main
+        with:
+          directory: "."
+
+      - name: Install mtrust_api_guard
+        run: dart pub global activate mtrust_api_guard
+
+      - name: 🔢 Version package
+        run: |
+          args=(version --badge --commit --tag --generate-changelog --tag-prefix "v")
+          if [[ "${{ inputs.pre_release }}" == "true" ]]; then
+            args+=(--pre-release --pre-release-prefix "")
+          fi
+          mtrust_api_guard "${args[@]}"
+
+      - name: Push branch to remote
+        run: git push origin ${{ inputs.branch }}
+
+      - name: Push tags to remote
+        run: git push origin --tags
+
+  rebase_dev:
+    name: Write changes to dev branch
+    if: ${{ inputs.branch == 'main' }}
+    needs: [version]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get token for bumper app
+        uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ inputs.app_id }}
+          private-key: ${{ secrets.app_private_key }}
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Git User
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "gh-actions@merckgroup.com"
+
+      - name: Update dev branch
+        run: |
+          git checkout main
+          git fetch origin
+          git checkout dev
+          git pull
+          git merge origin/main
+          git push origin dev

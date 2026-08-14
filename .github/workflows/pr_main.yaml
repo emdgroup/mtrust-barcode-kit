@@ -72,3 +72,79 @@ jobs:
         uses: emdgroup/mtrust-urp/.github/actions/check-dart-licenses@main
         with:
           directory: .
+
+  api_changes:
+    name: API Changes
+    needs: validate_pr
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch all tags
+        run: git fetch --tags
+
+      - name: 📇 Configure git
+        run: |
+          git fetch --prune --unshallow || true
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "gh-actions@merckgroup.com"
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.0"
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Install mtrust_api_guard
+        run: dart pub global activate mtrust_api_guard
+
+      - name: Analyse API changes
+        run: |
+          mtrust_api_guard version \
+            --badge \
+            --no-commit \
+            --no-tag \
+            --generate-changelog \
+            --json version_output.json
+
+      - name: Post version summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            try {
+              const versionOutput = fs.readFileSync('version_output.json', 'utf8');
+              const versionData = JSON.parse(versionOutput);
+
+              await core.summary
+                .addHeading('Version Analysis')
+                .addRaw(`\n\n**Next Version:** \`${versionData.version}\`\n\n`)
+                .addRaw(versionData.badge ? `\n\n**Badge:**\n<img src="data:image/svg+xml;utf8,${encodeURIComponent(versionData.badge)}" alt="Version Badge" />` : '')
+                .addHeading('Changelog', 3)
+                .addRaw('\n\n')
+                .addRaw(versionData.changelog || 'No changelog available.')
+                .write();
+
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## Version Analysis\n\n**Next Version:** \`${versionData.version}\`\n\n**Changelog:** 📄 [View detailed changelog in job summary](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n\n${versionData.badge ? `**Badge:**\n<img src="data:image/svg+xml;utf8,${encodeURIComponent(versionData.badge)}" alt="Version Badge" />` : ''}`
+              });
+            } catch (error) {
+              console.error('Error parsing version output or posting comment:', error);
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## Version Analysis\n\nFailed to parse version output. Check the [job logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`
+              });
+            }
