@@ -23,7 +23,7 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://dev.azure.com/M-Trust/Flutter%20Packages/_git/barcode_kit"
+        "url": "https://github.com/emdgroup/mtrust-barcode-kit"
     },
     "author": "",
     "license": "ISC",
