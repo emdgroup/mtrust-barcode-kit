@@ -1,3 +1,30 @@
+## 2.1.0-1
+Released on: 8/14/2026, changelog automatically generated.
+
+
+### Features
+
+- **ios:** migrate to Swift Package Manager ([#3](issues/3)) ([90a447f](commit/90a447f))
+
+### API Changes
+
+#### 💣 Breaking changes
+
+**`meta` pubspec.yaml** ([pubspec.yaml](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-0..v2.1.0-1#diff-8b7e9df87668ffa6a04b32e1769a33434999e54ae081c52e5d943c541d4c0d25))
+- 🎯 Minimum Flutter SDK version increased: from `>=3.3.0` to `>=3.44.0`
+- 🍎 Minimum iOS SDK version increased: from `9.0` to `13.0`
+
+#### 👀 Patch changes
+
+**`class` _PerspectiveMatrix** ([lib/src/perspective.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-0..v2.1.0-1#diff-6ff0e5d0c22aada208821c900684ca46eaf98c7e97cde3d9b76fd4834c501e83))
+- ➖ Mixin removed: EquatableMixin
+- ➕ Mixin added: Equatable
+
+**`meta` pubspec.yaml** ([pubspec.yaml](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-0..v2.1.0-1#diff-8b7e9df87668ffa6a04b32e1769a33434999e54ae081c52e5d943c541d4c0d25))
+- 📦 `equatable` version changed: from `^2.0.5` to `^2.1.0`
+- 📦 `native_device_orientation` version changed: from `^2.0.3` to `^2.1.1`
+- 📦 `permission_handler` version changed: from `^11.4.0` to `^13.0.1`
+
 ## 2.1.0-0
 Released on: 9/8/2025, changelog automatically generated.
 
@@ -36,7 +63,6 @@ Released on: 9/8/2025, changelog automatically generated.
 
 **`meta` pubspec.yaml** ([pubspec.yaml](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.0.3-0..v2.1.0-0#diff-8b7e9df87668ffa6a04b32e1769a33434999e54ae081c52e5d943c541d4c0d25))
 - 📦 `permission_handler` version changed: from `^11.3.1` to `^11.4.0`
-
 
 ## 2.0.3-0
 Released on: 2/10/2025, changelog automatically generated.
@@ -92,7 +118,6 @@ Released on: 2/10/2025, changelog automatically generated.
 **`function` _createConnectionError** ([lib/src/pigeon.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.0.2..v2.0.3-0#diff-6f7883e658ce56db7488001ea24120f6db668ed2793be484d6f3bd7070bb06d3))
 - ❇️ Function added: `_createConnectionError`
 
-
 ## 2.0.2
 Released on: 11/18/2024, changelog automatically generated.
 
@@ -104,7 +129,6 @@ Released on: 11/18/2024, changelog automatically generated.
 - ❌ Param removed in method `_wrapInRotatedBox`: `orentation` (named, required)
 - ❇️ Param added in method `_wrapInRotatedBox`: `orientation` (named, required)
 - ✏️ Param renamed in method `_getQuarterTurns`: `orentation` → `orientation`
-
 
 ## 2.0.1
 Released on: 10/8/2024, changelog automatically generated.
@@ -145,7 +169,6 @@ Released on: 9/11/2024, changelog automatically generated.
 **`typedef` OnTextDetectedCallback** ([lib/src/barcode_kit.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v1.0.9..v2.0.0#diff-6c1e62c053047fbc8d516040f9274ece318a413ee92aa5cfd3e6672096caa00c))
 - ❇️ Typedef added: `OnTextDetectedCallback`
 
-
 ## 1.0.9
 Released on: 6/17/2024, changelog automatically generated.
 
@@ -174,7 +197,6 @@ Released on: 6/17/2024, changelog automatically generated.
 - 📦 `permission_handler` version changed: from `^10.3.0` to `^11.3.1`
 - 📦 `plugin_platform_interface` version changed: from `^2.0.2` to `^2.1.8`
 
-
 ## 1.0.7
 Released on: 10/9/2023, changelog automatically generated.
 
@@ -184,7 +206,6 @@ Released on: 10/9/2023, changelog automatically generated.
 
 **`meta` pubspec.yaml** ([pubspec.yaml](https://github.com/emdgroup/mtrust-barcode-kit/compare/v1.0.6..v1.0.7#diff-8b7e9df87668ffa6a04b32e1769a33434999e54ae081c52e5d943c541d4c0d25))
 - 🎯 Maximum Dart SDK version increased: from `>=2.18.6 <3.0.0` to `>=2.18.6 <4.0.0`
-
 
 ## 1.0.6
 Released on: 9/29/2023, changelog automatically generated.
@@ -210,7 +231,6 @@ Released on: 8/31/2023, changelog automatically generated.
 **`class` BarcodeKit** ([lib/src/barcode_kit.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v1.0.4..v1.0.5#diff-6c1e62c053047fbc8d516040f9274ece318a413ee92aa5cfd3e6672096caa00c))
 - ❇️ Method added: `_convertDataMatrix`
 
-
 ## 1.0.4
 Released on: 7/21/2023, changelog automatically generated.
 
@@ -233,7 +253,6 @@ Released on: 7/21/2023, changelog automatically generated.
 - ❇️ Property added: `_lastFormats`
 - ❇️ Method added: `_buildMaskAdditions`
 
-
 ## 1.0.3
 Released on: 7/2/2023, changelog automatically generated.
 
@@ -248,7 +267,6 @@ Released on: 7/2/2023, changelog automatically generated.
 
 **`class` _BarcodeKitViewState** ([lib/src/barcode_kit_view.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v1.0.2..v1.0.3#diff-8cd8d66c2e6b0f5dbbee58d73962a9e2819ccb420602079f63fcc2089108f8d3))
 - ❌ Property removed: `openedFormats`
-
 
 ## 1.0.2
 Released on: 6/28/2023, changelog automatically generated.
@@ -325,5 +343,3 @@ Released on: 6/28/2023, changelog automatically generated.
 - 📦 `plugin_platform_interface` version changed: from `^2.1.8` to `^2.0.2`
 - 🎯 Minimum Dart SDK version decreased: from `>=3.3.1 <4.0.0` to `>=2.18.6 <3.0.0`
 - 🎯 Minimum Flutter SDK version decreased: from `>=3.3.0` to `>=2.5.0`
-
-
