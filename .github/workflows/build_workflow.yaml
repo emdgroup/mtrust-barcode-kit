@@ -42,6 +42,7 @@ jobs:
       - name: 📇 Configure git
         run: |
           git fetch --prune --unshallow
+          git fetch --tags
           git config --global user.name "GitHub Actions"
           git config --global user.email "gh-actions@merckgroup.com"
 
