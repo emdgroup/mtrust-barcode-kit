@@ -6,97 +6,12 @@ on:
       - dev
 
 jobs:
-  version:
-    name: Version & Build
+  build:
     if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
-    runs-on: ubuntu-latest
-    environment: release
-
-    steps:
-      - name: Get token for bumper app
-        uses: actions/create-github-app-token@v1
-        id: app-token
-        with:
-          app-id: ${{ vars.BUMPER_APP_ID }}
-          private-key: ${{ secrets.BUMPER_APP_KEY }}
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
-      - name: 📇 Configure git
-        run: |
-          git fetch --prune --unshallow
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "gh-actions@merckgroup.com"
-        shell: bash
-
-      - name: Install Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.44.0"
-          cache: true
-
-      - name: Get dependencies
-        run: flutter pub get
-        shell: bash
-
-      - name: Validate Flutter
-        uses: emdgroup/mtrust-urp/.github/actions/validate-flutter@main
-        with:
-          directory: "."
-          is_package: true
-
-      - name: Check licenses
-        uses: emdgroup/mtrust-urp/.github/actions/check-dart-licenses@main
-        with:
-          directory: "."
-
-      - name: Install mtrust_api_guard
-        run: dart pub global activate mtrust_api_guard
-
-      - name: 🔢 Version package
-        run: |
-          mtrust_api_guard version \
-            --badge \
-            --commit \
-            --tag \
-            --generate-changelog \
-            --pre-release \
-            --pre-release-prefix "" \
-            --tag-prefix "v"
-
-      - name: Push branch to remote
-        run: git push origin dev
-
-      - name: Push tags to remote
-        run: git push origin --tags
-
-  rebase_dev:
-    name: Write changes to dev branch
-    needs: [version]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{secrets.ELEVATED_TOKEN}}
-
-      - name: Setup Git User
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "gh-actions@merckgroup.com"
-
-      - name: Update Test Branch
-        run: |
-          git checkout main
-          git fetch origin
-          git checkout dev
-          git pull
-          git merge origin/main
-          git push origin dev
+    uses: ./.github/workflows/build_workflow.yaml
+    with:
+      branch: dev
+      pre_release: true
+      app_id: ${{ vars.BUMPER_APP_ID }}
+    secrets:
+      app_private_key: ${{ secrets.BUMPER_APP_KEY }}
