@@ -138,7 +138,7 @@ class PerspectiveTransform extends Equatable {
 }
 
 // ignore: must_be_immutable
-class _PerspectiveMatrix extends ListBase<double> with EquatableMixin {
+class _PerspectiveMatrix extends ListBase<double> with Equatable {
   _PerspectiveMatrix(List<List<double>> matrix)
       : _values = matrix.reduce((value, element) => [...value, ...element]);
 
