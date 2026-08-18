@@ -1,3 +1,6 @@
+## 2.1.0-3
+Released on: 8/18/2026, changelog automatically generated.
+
 ## 2.1.0-2
 Released on: 8/17/2026, changelog automatically generated.
 

@@ -1,6 +1,6 @@
 name: mtrust_barcode_kit
 description: Read barcodes and text, render custom overlays uses MLKit and AVFoundation.
-version: 2.1.0-2
+version: 2.1.0-3
 repository: https://github.com/emdgroup/mtrust-barcode-kit
 environment:
   sdk: ">=3.3.1 <4.0.0"
