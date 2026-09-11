@@ -10,6 +10,9 @@ import CameraOpenResponse
 import CornerPoint
 import DetectedBarcode
 import android.annotation.SuppressLint
+import android.graphics.Rect
+import android.graphics.RectF
+import android.media.Image
 import android.os.Build
 import android.util.Log
 import android.view.Surface
@@ -17,16 +20,20 @@ import androidx.annotation.RequiresApi
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.TorchState
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.mlkit.vision.MlKitAnalyzer
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -109,9 +116,10 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
     override fun onDetachedFromActivity() {
-        // Remove references
-        activity = null
+        // Close the camera while the activity reference is still available,
+        // then remove the reference.
         closeCamera()
+        activity = null
     }
 
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
@@ -184,14 +192,7 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
              val detectors = buildDetectors(formats)
 
-            val analyzer =
-                MlKitAnalyzer(
-                    listOf(detectors.first,detectors.second),
-                    ImageAnalysis.COORDINATE_SYSTEM_ORIGINAL,
-                    executor
-                ) {
-                    processMlResult(it, detectors.first, detectors.second)
-                }
+            val analyzer = MaskedAnalyzer(detectors.first, detectors.second)
 
             analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -271,37 +272,141 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
         return camera
     }
 
-    @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    fun processMlResult(result: MlKitAnalyzer.Result, barcodeScanner: BarcodeScanner, textRecognizer: TextRecognizer ) {
-        val barcodes = result.getValue(barcodeScanner)
+    private fun handleBarcodes(barcodes: List<Barcode>?) {
+        if (barcodes.isNullOrEmpty()) return
+        for (barcode: Barcode in barcodes) {
+            flutterApi?.onBarcodeScanned(
+                DetectedBarcode(
+                    rawValue = barcode.rawValue,
+                    format = barcodeFormatsReversed[barcode.format],
+                    cornerPoints = barcode.cornerPoints!!.map { point ->
+                        CornerPoint(point.x.toDouble(), point.y.toDouble())
+                    }
+                )
+            ) {}
+        }
+    }
 
-
-
-        if (!barcodes.isNullOrEmpty()) {
-            for (barcode: Barcode in barcodes) {
-                flutterApi?.onBarcodeScanned(
-                    DetectedBarcode(
-                        rawValue = barcode.rawValue,
-                        format = barcodeFormatsReversed[barcode.format],
-                        cornerPoints = barcode.cornerPoints!!.map { point ->
-                            CornerPoint(point.x.toDouble(), point.y.toDouble())
-                        }
-                    )
-                ) {}
+    private fun handleText(text: Text?) {
+        if (text == null) return
+        for (block in text.textBlocks) {
+            for (line in block.lines) {
+                flutterApi?.onTextDetected(line.text) {}
             }
         }
-        if (ocrEnabled) {
-            val texts = result.getValue(textRecognizer)
-            if (texts != null) {
-                for (block in texts.textBlocks) {
-                    for (line in block.lines) {
-                        // Handle recognized text
-                        flutterApi?.onTextDetected(
-                            line.text,
-                        ) {}
-                    }
-                }
+    }
+
+    /**
+     * SPIKE: custom [ImageAnalysis.Analyzer] that restricts OCR to a region of
+     * the frame instead of the ML Kit-managed [androidx.camera.mlkit.vision.MlKitAnalyzer],
+     * which always evaluates every attached detector against the full frame.
+     *
+     * Barcode detection still runs on the full frame (unchanged behaviour).
+     * Text recognition is restricted to [ocrRegion] by mutating the underlying
+     * [Image.cropRect] before wrapping it in a second [InputImage] - ML Kit's
+     * internal YUV -> Bitmap conversion honours `Image.cropRect`, so the
+     * recognizer only ever sees/decodes the cropped region rather than the
+     * full frame. This is what actually saves CPU, vs. detecting on the full
+     * frame and merely filtering results afterwards.
+     *
+     * NOTE - this is a proof of concept, not production ready:
+     *  - [ocrRegion] is hardcoded (normalized, in "display/rotated" space,
+     *    i.e. what the user sees in the mask cutout). Wiring the real mask
+     *    rect from `BarcodeKitView` requires a new Pigeon message from Dart
+     *    (e.g. extending `setOCREnabled` or a new `setOcrRegion(Rect)` call)
+     *    computed from `maskWidth`/`maskHeight` vs. the preview's rendered
+     *    size/aspect ratio.
+     *  - The rotation -> sensor-space mapping in [computeCropRect] needs
+     *    verification on real devices (front vs back camera, 0/90/180/270
+     *    sensor rotation) before this ships.
+     *  - Two separate ML Kit calls (barcode + text) now run instead of one
+     *    combined `MlKitAnalyzer` pass; frame lifetime (`imageProxy.close()`)
+     *    is now our responsibility and is deferred until both tasks finish.
+     */
+    private inner class MaskedAnalyzer(
+        private val barcodeScanner: BarcodeScanner,
+        private val textRecognizer: TextRecognizer
+    ) : ImageAnalysis.Analyzer {
+
+        // TODO: replace with the real mask rect, piped in from Dart via Pigeon.
+        // Normalized (0..1) rect, in the orientation the user sees on screen.
+        var ocrRegion = RectF(0.15f, 0.35f, 0.85f, 0.65f)
+
+        @SuppressLint("UnsafeOptInUsageError")
+        override fun analyze(imageProxy: ImageProxy) {
+            val mediaImage = imageProxy.image
+            if (mediaImage == null) {
+                imageProxy.close()
+                return
             }
+
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+
+            // Barcode detection: full frame, default crop rect.
+            mediaImage.cropRect = Rect(0, 0, mediaImage.width, mediaImage.height)
+            val barcodeTask: Task<List<Barcode>> =
+                barcodeScanner.process(InputImage.fromMediaImage(mediaImage, rotationDegrees))
+
+            // Text recognition: only the masked region, if OCR is enabled.
+            val textTask: Task<Text>? = if (ocrEnabled) {
+                val cropRect = computeCropRect(mediaImage, rotationDegrees, ocrRegion)
+                mediaImage.cropRect = cropRect
+                textRecognizer.process(InputImage.fromMediaImage(mediaImage, rotationDegrees))
+            } else {
+                null
+            }
+
+            val tasks = mutableListOf<Task<*>>(barcodeTask)
+            if (textTask != null) tasks.add(textTask)
+
+            Tasks.whenAllComplete(tasks).addOnCompleteListener {
+                if (barcodeTask.isSuccessful) {
+                    handleBarcodes(barcodeTask.result)
+                }
+                if (textTask?.isSuccessful == true) {
+                    handleText(textTask.result)
+                }
+                imageProxy.close()
+            }
+        }
+
+        /**
+         * Maps a normalized rect defined in "display/rotated" space (i.e. what
+         * the mask cutout looks like to the user, independent of sensor
+         * rotation) back into the raw sensor buffer's coordinate space, then
+         * into pixel coordinates clamped to the image bounds.
+         */
+        private fun computeCropRect(mediaImage: Image, rotationDegrees: Int, normalized: RectF): Rect {
+            val imageWidth = mediaImage.width
+            val imageHeight = mediaImage.height
+
+            val rotated = when (rotationDegrees) {
+                90 -> RectF(
+                    normalized.top, 1f - normalized.right,
+                    normalized.bottom, 1f - normalized.left
+                )
+                180 -> RectF(
+                    1f - normalized.right, 1f - normalized.bottom,
+                    1f - normalized.left, 1f - normalized.top
+                )
+                270 -> RectF(
+                    1f - normalized.bottom, normalized.left,
+                    1f - normalized.top, normalized.right
+                )
+                else -> normalized
+            }
+
+            val left = (rotated.left * imageWidth).toInt().coerceIn(0, imageWidth)
+            val top = (rotated.top * imageHeight).toInt().coerceIn(0, imageHeight)
+            var right = (rotated.right * imageWidth).toInt().coerceIn(left, imageWidth)
+            var bottom = (rotated.bottom * imageHeight).toInt().coerceIn(top, imageHeight)
+
+            // YUV planes are subsampled 2x2; keep the rect even-aligned to
+            // avoid decoder artifacts/crashes on some devices.
+            right = right and 1.inv()
+            bottom = bottom and 1.inv()
+
+            return Rect(left, top, right, bottom)
         }
     }
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
@@ -329,7 +434,9 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
     override fun closeCamera() {
 
 
-        camera?.cameraInfo?.torchState?.removeObservers(activity!!.activity as LifecycleOwner)
+        (activity?.activity as? LifecycleOwner)?.let { lifecycleOwner ->
+            camera?.cameraInfo?.torchState?.removeObservers(lifecycleOwner)
+        }
         cameraProvider?.unbindAll()
 
 
