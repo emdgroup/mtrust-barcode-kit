@@ -13,6 +13,15 @@ runs:
   steps:
     - name: Setup Dart (configures pub.dev OIDC token)
       uses: dart-lang/setup-dart@v1
+      with:
+        # Registering the dart-analyze problem matcher is broken when this
+        # action is invoked from within a nested local composite action
+        # (this one): it tries to add a matcher file relative to *this*
+        # composite action's own directory instead of its own installed
+        # location, failing with "Could not find file
+        # .../.github/actions/publish-pub-dev/dart-analyzer.json". Not
+        # needed for a publish step anyway.
+        problem-matcher: "false"
 
     - name: Install Flutter
       uses: subosito/flutter-action@v2
