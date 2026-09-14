@@ -127,6 +127,8 @@ class BarcodeKit extends BarcodeKitFlutterApi {
       finalBarcode = DetectedBarcode(
         rawValue: _convertDataMatrix(barcode.rawValue!),
         cornerPoints: barcode.cornerPoints,
+        format: barcode.format,
+        textValue: barcode.textValue,
       );
     }
 

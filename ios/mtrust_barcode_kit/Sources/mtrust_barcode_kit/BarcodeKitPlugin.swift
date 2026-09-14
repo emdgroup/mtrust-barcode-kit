@@ -531,6 +531,24 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     
 
     
+    // NOTE: intentionally missing .upcA and .codabar - see below. If
+    // `openCamera(formats:)` is used to restrict to *only* one of these two
+    // formats, this map's lookup in `openCamera` silently drops it, leaving
+    // `metadataOutput.metadataObjectTypes` empty and barcode scanning
+    // silently non-functional for that session (no error is raised).
+    //
+    // - .codabar: AVFoundation has no Codabar support at all - there is no
+    //   corresponding `AVMetadataObject.ObjectType` case. This is a platform
+    //   limitation, not something fixable by adding an entry here.
+    // - .upcA: AVFoundation has no distinct UPC-A object type either - it
+    //   reports UPC-A barcodes as `.ean13` (UPC-A numbers are valid EAN-13
+    //   values with a leading `0`). With unrestricted `formats: []` scanning,
+    //   a UPC-A barcode is still detected, but currently comes back as
+    //   `format: .ean13` rather than `.upcA` (and with the leading `0` still
+    //   present in `rawValue`/`textValue`). Handling this "properly" would
+    //   require inspecting `.ean13` results for a leading-zero 13-digit
+    //   value and remapping to `.upcA` (stripping the leading digit), which
+    //   hasn't been implemented here.
     var barcodeMap: [BarcodeFormat: AVMetadataObject.ObjectType] = [
         .aztec: .aztec,
         .code93: .code93,
