@@ -157,6 +157,94 @@ data class CornerPoint (
     )
   }
 }
+
+/**
+ * A single recognized line of OCR text, with geometry mirroring
+ * [DetectedBarcode] so both can be positioned/compared using the same
+ * full camera-texture pixel coordinate space (post sensor-rotation,
+ * "display" orientation, matching the width/height returned by
+ * [BarcodeKitHostApi.openCamera]).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class DetectedText (
+  /** The recognized text content of this line. */
+  val text: String,
+  /**
+   * Recognition confidence (0..1). On Android this is ML Kit's
+   * `Text.Line.getConfidence()`. On iOS this is
+   * `VNRecognizedText.confidence` for the top candidate.
+   */
+  val confidence: Double,
+  /**
+   * The four corners of the line's bounding quadrilateral, in the same
+   * coordinate space as [DetectedBarcode.cornerPoints].
+   */
+  val cornerPoints: List<CornerPoint?>,
+  /**
+   * Groups lines belonging to the same OCR text block (ML Kit only).
+   * Always 0 on iOS, since Vision has no block concept - only individual
+   * line-level observations.
+   */
+  val blockIndex: Long,
+  /** The line's order within its block (reading order). */
+  val lineIndex: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): DetectedText {
+      val text = pigeonVar_list[0] as String
+      val confidence = pigeonVar_list[1] as Double
+      val cornerPoints = pigeonVar_list[2] as List<CornerPoint?>
+      val blockIndex = pigeonVar_list[3] as Long
+      val lineIndex = pigeonVar_list[4] as Long
+      return DetectedText(text, confidence, cornerPoints, blockIndex, lineIndex)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      text,
+      confidence,
+      cornerPoints,
+      blockIndex,
+      lineIndex,
+    )
+  }
+}
+
+/**
+ * A normalized (0..1) rectangular region of a camera frame, expressed in
+ * the same "display" orientation as the width/height returned by
+ * [BarcodeKitHostApi.openCamera] (i.e. already accounting for sensor
+ * rotation, before any further widget-level rotation).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class MaskRegion (
+  val left: Double,
+  val top: Double,
+  val right: Double,
+  val bottom: Double
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): MaskRegion {
+      val left = pigeonVar_list[0] as Double
+      val top = pigeonVar_list[1] as Double
+      val right = pigeonVar_list[2] as Double
+      val bottom = pigeonVar_list[3] as Double
+      return MaskRegion(left, top, right, bottom)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      left,
+      top,
+      right,
+      bottom,
+    )
+  }
+}
 private open class PigeonPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -185,6 +273,16 @@ private open class PigeonPigeonCodec : StandardMessageCodec() {
           CornerPoint.fromList(it)
         }
       }
+      134.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          DetectedText.fromList(it)
+        }
+      }
+      135.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          MaskRegion.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -210,6 +308,14 @@ private open class PigeonPigeonCodec : StandardMessageCodec() {
         stream.write(133)
         writeValue(stream, value.toList())
       }
+      is DetectedText -> {
+        stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is MaskRegion -> {
+        stream.write(135)
+        writeValue(stream, value.toList())
+      }
       else -> super.writeValue(stream, value)
     }
   }
@@ -220,6 +326,19 @@ private open class PigeonPigeonCodec : StandardMessageCodec() {
 interface BarcodeKitHostApi {
   fun openCamera(direction: CameraLensDirection, formats: List<Long>, fallbackDirections: List<CameraLensDirection>, callback: (Result<CameraOpenResponse>) -> Unit)
   fun setOCREnabled(enabled: Boolean)
+  /**
+   * Restricts both barcode detection and OCR (when enabled) to [region] of
+   * the camera frame instead of scanning the entire frame, matching the
+   * visible mask cutout. Android only for now.
+   */
+  fun setMaskRegion(region: MaskRegion)
+  /**
+   * Discards recognized text lines whose confidence score is below
+   * [minConfidence] (0..1) before forwarding them via
+   * `BarcodeKitFlutterApi.onTextDetected`. Defaults to 0 (no filtering) if
+   * never called.
+   */
+  fun setMinTextConfidence(minConfidence: Double)
   fun closeCamera()
   fun pauseCamera()
   fun resumeCamera()
@@ -264,6 +383,42 @@ interface BarcodeKitHostApi {
             val enabledArg = args[0] as Boolean
             val wrapped: List<Any?> = try {
               api.setOCREnabled(enabledArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMaskRegion$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val regionArg = args[0] as MaskRegion
+            val wrapped: List<Any?> = try {
+              api.setMaskRegion(regionArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMinTextConfidence$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val minConfidenceArg = args[0] as Double
+            val wrapped: List<Any?> = try {
+              api.setMinTextConfidence(minConfidenceArg)
               listOf(null)
             } catch (exception: Throwable) {
               wrapError(exception)
@@ -369,13 +524,13 @@ class BarcodeKitFlutterApi(private val binaryMessenger: BinaryMessenger, private
       } 
     }
   }
-  /** Called from the host when text is detected. */
-  fun onTextDetected(textArg: String, callback: (Result<Unit>) -> Unit)
+  /** Called from the host when a line of text is detected. */
+  fun onTextDetected(detectedTextArg: DetectedText, callback: (Result<Unit>) -> Unit)
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitFlutterApi.onTextDetected$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
-    channel.send(listOf(textArg)) {
+    channel.send(listOf(detectedTextArg)) {
       if (it is List<*>) {
         if (it.size > 1) {
           callback(Result.failure(FlutterError(it[0] as String, it[1] as String, it[2] as String?)))

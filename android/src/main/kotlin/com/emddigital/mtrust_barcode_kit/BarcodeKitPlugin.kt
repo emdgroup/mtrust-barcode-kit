@@ -9,12 +9,13 @@ import CameraLensDirection
 import CameraOpenResponse
 import CornerPoint
 import DetectedBarcode
+import DetectedText
+import MaskRegion
 import android.annotation.SuppressLint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.media.Image
 import android.os.Build
-import android.util.Log
 import android.view.Surface
 import androidx.annotation.RequiresApi
 import androidx.camera.core.Camera
@@ -85,6 +86,27 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
     private var ocrEnabled = false
 
+    // Minimum Text.Line confidence (0..1) required to forward a recognized
+    // line to Dart. 0 (default) means no filtering. Note: Text.Line/Element/
+    // Symbol.getConfidence() returns 0 (rather than throwing) on devices
+    // with Play services older than ~22.30.x, which is indistinguishable
+    // from a genuinely low-confidence line - see
+    // https://developers.google.com/android/reference/com/google/mlkit/vision/text/Text.Line#getConfidence()
+    @Volatile
+    private var minTextConfidence = 0f
+
+    // Normalized (0..1) region (shared by both barcode detection and OCR),
+    // in "display" orientation (matching the width/height returned from
+    // openCamera). Kept here so it survives across camera re-opens and can
+    // be applied to a freshly created MaskedAnalyzer immediately. Defaults
+    // to a reasonable centered region until Dart sends the real mask
+    // geometry via setMaskRegion.
+    @Volatile
+    private var maskRegion = RectF(0.15f, 0.35f, 0.85f, 0.65f)
+
+    // The currently active analyzer, so setMaskRegion can update it live
+    // without requiring a camera restart.
+    private var maskedAnalyzer: MaskedAnalyzer? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         // Keep a reference to the binding
@@ -101,7 +123,6 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
         flutterApi = null
         // Remove reference
         flutter = null
-
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -192,7 +213,10 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
              val detectors = buildDetectors(formats)
 
-            val analyzer = MaskedAnalyzer(detectors.first, detectors.second)
+            val analyzer = MaskedAnalyzer(detectors.first, detectors.second).apply {
+                maskRegion = this@BarcodeKitPlugin.maskRegion
+            }
+            maskedAnalyzer = analyzer
 
             analysis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -272,7 +296,15 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
         return camera
     }
 
-    private fun handleBarcodes(barcodes: List<Barcode>?) {
+    /**
+     * [offsetX]/[offsetY] translate corner points back from the cropped
+     * sub-image's coordinate space into the full sensor frame's coordinate
+     * space (i.e. add back the crop rect's top-left corner), since barcode
+     * detection now runs against a cropped [InputImage] rather than the full
+     * frame. No scale correction is needed since cropping doesn't resample -
+     * pixel density is unchanged, only the origin shifts.
+     */
+    private fun handleBarcodes(barcodes: List<Barcode>?, offsetX: Int, offsetY: Int) {
         if (barcodes.isNullOrEmpty()) return
         for (barcode: Barcode in barcodes) {
             flutterApi?.onBarcodeScanned(
@@ -280,57 +312,118 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
                     rawValue = barcode.rawValue,
                     format = barcodeFormatsReversed[barcode.format],
                     cornerPoints = barcode.cornerPoints!!.map { point ->
-                        CornerPoint(point.x.toDouble(), point.y.toDouble())
+                        CornerPoint((point.x + offsetX).toDouble(), (point.y + offsetY).toDouble())
                     }
                 )
             ) {}
         }
     }
 
-    private fun handleText(text: Text?) {
+    /**
+     * [offsetX]/[offsetY] translate corner points back from the cropped
+     * sub-image's coordinate space into the full sensor frame's coordinate
+     * space, mirroring [handleBarcodes] - OCR runs against the same cropped
+     * [InputImage] as barcode detection (see [MaskedAnalyzer]).
+     */
+    private fun handleText(text: Text?, offsetX: Int, offsetY: Int) {
         if (text == null) return
-        for (block in text.textBlocks) {
-            for (line in block.lines) {
-                flutterApi?.onTextDetected(line.text) {}
+        for ((blockIndex, block) in text.textBlocks.withIndex()) {
+            for ((lineIndex, line) in block.lines.withIndex()) {
+                if (line.confidence < minTextConfidence) continue
+
+                // Prefer the (possibly skewed) corner points; fall back to
+                // the axis-aligned bounding box's corners if ML Kit didn't
+                // provide corner points for this line.
+                val corners = line.cornerPoints?.map { point ->
+                    CornerPoint((point.x + offsetX).toDouble(), (point.y + offsetY).toDouble())
+                } ?: line.boundingBox?.let { rect ->
+                    listOf(
+                        CornerPoint((rect.left + offsetX).toDouble(), (rect.top + offsetY).toDouble()),
+                        CornerPoint((rect.right + offsetX).toDouble(), (rect.top + offsetY).toDouble()),
+                        CornerPoint((rect.right + offsetX).toDouble(), (rect.bottom + offsetY).toDouble()),
+                        CornerPoint((rect.left + offsetX).toDouble(), (rect.bottom + offsetY).toDouble())
+                    )
+                } ?: emptyList()
+
+                flutterApi?.onTextDetected(
+                    DetectedText(
+                        text = line.text,
+                        confidence = line.confidence.toDouble(),
+                        cornerPoints = corners,
+                        blockIndex = blockIndex.toLong(),
+                        lineIndex = lineIndex.toLong()
+                    )
+                ) {}
             }
         }
     }
 
     /**
-     * SPIKE: custom [ImageAnalysis.Analyzer] that restricts OCR to a region of
-     * the frame instead of the ML Kit-managed [androidx.camera.mlkit.vision.MlKitAnalyzer],
-     * which always evaluates every attached detector against the full frame.
+     * SPIKE: custom [ImageAnalysis.Analyzer] that restricts both barcode
+     * detection and OCR to the visible mask region, instead of the ML
+     * Kit-managed [androidx.camera.mlkit.vision.MlKitAnalyzer], which always
+     * evaluates every attached detector against the full frame.
      *
-     * Barcode detection still runs on the full frame (unchanged behaviour).
-     * Text recognition is restricted to [ocrRegion] by mutating the underlying
-     * [Image.cropRect] before wrapping it in a second [InputImage] - ML Kit's
-     * internal YUV -> Bitmap conversion honours `Image.cropRect`, so the
-     * recognizer only ever sees/decodes the cropped region rather than the
-     * full frame. This is what actually saves CPU, vs. detecting on the full
-     * frame and merely filtering results afterwards.
+     * IMPORTANT: `android.media.Image.cropRect` does **not** work for this -
+     * `InputImage.fromMediaImage()` silently ignores it and always reads the
+     * full plane buffers (confirmed: https://github.com/googlesamples/mlkit/issues/234
+     * and still-open https://github.com/googlesamples/mlkit/issues/491). An
+     * earlier version of this spike relied on `cropRect` and appeared to
+     * compile/run fine, but had *zero* effect - OCR kept seeing (and
+     * detecting garbage from) the entire frame.
+     *
+     * The approach that actually works: manually extract a cropped NV21 byte
+     * array from the YUV_420_888 planes (respecting each plane's
+     * `rowStride`/`pixelStride`, since chroma planes are rarely tightly
+     * packed) and hand that independent byte array to
+     * [InputImage.fromByteArray]. This is a real copy, decoupled from the
+     * shared [Image], and only large enough to cover the masked region - so
+     * it both restricts *and* speeds up both detectors (less data to
+     * convert/scan). Both detectors share the same extracted [ByteArray]
+     * (read-only, so this is safe) to avoid extracting it twice per frame.
+     *
+     * Since barcode detection now runs against the cropped sub-image rather
+     * than the full frame, [Barcode.getCornerPoints] come back relative to
+     * the crop's own (0,0) origin - [handleBarcodes] translates them back
+     * into full-frame coordinates by adding the crop rect's top-left corner,
+     * since downstream Dart code (`PerspectiveTransform`/`PerspectiveBarcode`)
+     * expects full-frame coordinates to position the barcode overlay.
      *
      * NOTE - this is a proof of concept, not production ready:
-     *  - [ocrRegion] is hardcoded (normalized, in "display/rotated" space,
-     *    i.e. what the user sees in the mask cutout). Wiring the real mask
-     *    rect from `BarcodeKitView` requires a new Pigeon message from Dart
-     *    (e.g. extending `setOCREnabled` or a new `setOcrRegion(Rect)` call)
-     *    computed from `maskWidth`/`maskHeight` vs. the preview's rendered
-     *    size/aspect ratio.
+     *  - [maskRegion] defaults to a centered placeholder rect, but is normally
+     *    kept in sync with `BarcodeKitView`'s actual mask geometry via
+     *    `BarcodeKitPlugin.setMaskRegion()` (Dart computes the normalized rect
+     *    from `maskWidth`/`maskHeight` vs. the rendered preview size/aspect
+     *    ratio - see `_updateMaskRegion` in `barcode_kit_view.dart`).
      *  - The rotation -> sensor-space mapping in [computeCropRect] needs
      *    verification on real devices (front vs back camera, 0/90/180/270
      *    sensor rotation) before this ships.
+     *  - [cropToNv21] assumes a 3-plane YUV_420_888 image with 8-bit samples,
+     *    which holds for CameraX/Camera2 on all mainstream devices, but exotic
+     *    plane layouts (e.g. some MediaTek chipsets historically) may need
+     *    extra care/testing.
      *  - Two separate ML Kit calls (barcode + text) now run instead of one
      *    combined `MlKitAnalyzer` pass; frame lifetime (`imageProxy.close()`)
-     *    is now our responsibility and is deferred until both tasks finish.
+     *    is now our responsibility. Both `InputImage`s are now backed by an
+     *    independent copied byte array (not references into the shared
+     *    `Image`), so - unlike the very first version of this spike - neither
+     *    task actually requires the `Image`/`imageProxy` to stay alive; we
+     *    still wait on both before closing for simplicity.
+     *  - Barcodes are now only detected within the mask cutout. This is a
+     *    real behavioural change from the original (unmasked) implementation -
+     *    a barcode fully outside the visible mask will no longer be reported
+     *    at all.
      */
     private inner class MaskedAnalyzer(
         private val barcodeScanner: BarcodeScanner,
         private val textRecognizer: TextRecognizer
     ) : ImageAnalysis.Analyzer {
 
-        // TODO: replace with the real mask rect, piped in from Dart via Pigeon.
         // Normalized (0..1) rect, in the orientation the user sees on screen.
-        var ocrRegion = RectF(0.15f, 0.35f, 0.85f, 0.65f)
+        // Updated live from Dart via BarcodeKitPlugin.setMaskRegion(), based
+        // on the actual rendered mask geometry of BarcodeKitView.
+        @Volatile
+        var maskRegion = RectF(0.15f, 0.35f, 0.85f, 0.65f)
 
         @SuppressLint("UnsafeOptInUsageError")
         override fun analyze(imageProxy: ImageProxy) {
@@ -342,16 +435,31 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
             val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
-            // Barcode detection: full frame, default crop rect.
-            mediaImage.cropRect = Rect(0, 0, mediaImage.width, mediaImage.height)
-            val barcodeTask: Task<List<Barcode>> =
-                barcodeScanner.process(InputImage.fromMediaImage(mediaImage, rotationDegrees))
+            // Shared by barcode detection and OCR, so both are guaranteed to
+            // agree on exactly the same region.
+            val cropRect = computeCropRect(mediaImage, rotationDegrees, maskRegion)
+            val nv21 = cropToNv21(mediaImage, cropRect)
+
+            val barcodeTask: Task<List<Barcode>> = barcodeScanner.process(
+                InputImage.fromByteArray(
+                    nv21,
+                    cropRect.width(),
+                    cropRect.height(),
+                    rotationDegrees,
+                    InputImage.IMAGE_FORMAT_NV21
+                )
+            )
 
             // Text recognition: only the masked region, if OCR is enabled.
             val textTask: Task<Text>? = if (ocrEnabled) {
-                val cropRect = computeCropRect(mediaImage, rotationDegrees, ocrRegion)
-                mediaImage.cropRect = cropRect
-                textRecognizer.process(InputImage.fromMediaImage(mediaImage, rotationDegrees))
+                val croppedImage = InputImage.fromByteArray(
+                    nv21,
+                    cropRect.width(),
+                    cropRect.height(),
+                    rotationDegrees,
+                    InputImage.IMAGE_FORMAT_NV21
+                )
+                textRecognizer.process(croppedImage)
             } else {
                 null
             }
@@ -361,10 +469,10 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
 
             Tasks.whenAllComplete(tasks).addOnCompleteListener {
                 if (barcodeTask.isSuccessful) {
-                    handleBarcodes(barcodeTask.result)
+                    handleBarcodes(barcodeTask.result, cropRect.left, cropRect.top)
                 }
                 if (textTask?.isSuccessful == true) {
-                    handleText(textTask.result)
+                    handleText(textTask.result, cropRect.left, cropRect.top)
                 }
                 imageProxy.close()
             }
@@ -374,7 +482,9 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
          * Maps a normalized rect defined in "display/rotated" space (i.e. what
          * the mask cutout looks like to the user, independent of sensor
          * rotation) back into the raw sensor buffer's coordinate space, then
-         * into pixel coordinates clamped to the image bounds.
+         * into pixel coordinates clamped to the image bounds. Left/top/right/
+         * bottom are all aligned to even pixels since chroma planes are
+         * subsampled 2x2 and [cropToNv21] indexes chroma via `/2`.
          */
         private fun computeCropRect(mediaImage: Image, rotationDegrees: Int, normalized: RectF): Rect {
             val imageWidth = mediaImage.width
@@ -396,17 +506,78 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
                 else -> normalized
             }
 
-            val left = (rotated.left * imageWidth).toInt().coerceIn(0, imageWidth)
-            val top = (rotated.top * imageHeight).toInt().coerceIn(0, imageHeight)
+            var left = (rotated.left * imageWidth).toInt().coerceIn(0, imageWidth)
+            var top = (rotated.top * imageHeight).toInt().coerceIn(0, imageHeight)
             var right = (rotated.right * imageWidth).toInt().coerceIn(left, imageWidth)
             var bottom = (rotated.bottom * imageHeight).toInt().coerceIn(top, imageHeight)
 
-            // YUV planes are subsampled 2x2; keep the rect even-aligned to
-            // avoid decoder artifacts/crashes on some devices.
+            // Even-align so the chroma (half-resolution) crop lines up exactly.
+            left = left and 1.inv()
+            top = top and 1.inv()
             right = right and 1.inv()
             bottom = bottom and 1.inv()
 
             return Rect(left, top, right, bottom)
+        }
+
+        /**
+         * Extracts the pixels within [cropRect] from a YUV_420_888 [Image]
+         * into a standalone NV21 (Y, then interleaved VU) byte array, honouring
+         * each plane's `rowStride`/`pixelStride` (chroma planes are frequently
+         * *not* tightly packed, so naive contiguous copies produce corrupted/
+         * shifted output on many devices).
+         *
+         * [cropRect] must have even left/top/right/bottom (see
+         * [computeCropRect]) so the chroma subsampling divides evenly.
+         */
+        private fun cropToNv21(image: Image, cropRect: Rect): ByteArray {
+            val cropWidth = cropRect.width()
+            val cropHeight = cropRect.height()
+            val ySize = cropWidth * cropHeight
+            val chromaWidth = cropWidth / 2
+            val chromaHeight = cropHeight / 2
+            val nv21 = ByteArray(ySize + chromaWidth * chromaHeight * 2)
+
+            val yPlane = image.planes[0]
+            val yBuffer = yPlane.buffer
+            val yRowStride = yPlane.rowStride
+            val yPixelStride = yPlane.pixelStride
+
+            var pos = 0
+            for (row in 0 until cropHeight) {
+                val imageRow = cropRect.top + row
+                val rowStart = imageRow * yRowStride
+                for (col in 0 until cropWidth) {
+                    val imageCol = cropRect.left + col
+                    nv21[pos++] = yBuffer.get(rowStart + imageCol * yPixelStride)
+                }
+            }
+
+            // NV21 expects V before U, interleaved, at half resolution.
+            val uPlane = image.planes[1]
+            val vPlane = image.planes[2]
+            val uBuffer = uPlane.buffer
+            val vBuffer = vPlane.buffer
+            val uRowStride = uPlane.rowStride
+            val uPixelStride = uPlane.pixelStride
+            val vRowStride = vPlane.rowStride
+            val vPixelStride = vPlane.pixelStride
+
+            val chromaLeft = cropRect.left / 2
+            val chromaTop = cropRect.top / 2
+
+            for (row in 0 until chromaHeight) {
+                val chromaRow = chromaTop + row
+                val uRowStart = chromaRow * uRowStride
+                val vRowStart = chromaRow * vRowStride
+                for (col in 0 until chromaWidth) {
+                    val chromaCol = chromaLeft + col
+                    nv21[pos++] = vBuffer.get(vRowStart + chromaCol * vPixelStride)
+                    nv21[pos++] = uBuffer.get(uRowStart + chromaCol * uPixelStride)
+                }
+            }
+
+            return nv21
         }
     }
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
@@ -428,6 +599,20 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
         ocrEnabled = enabled
     }
 
+    override fun setMaskRegion(region: MaskRegion) {
+        val rect = RectF(
+            region.left.toFloat(),
+            region.top.toFloat(),
+            region.right.toFloat(),
+            region.bottom.toFloat()
+        )
+        maskRegion = rect
+        maskedAnalyzer?.maskRegion = rect
+    }
+
+    override fun setMinTextConfidence(minConfidence: Double) {
+        minTextConfidence = minConfidence.toFloat()
+    }
 
     @SuppressLint("RestrictedApi")
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
@@ -446,6 +631,7 @@ class BarcodeKitPlugin : FlutterPlugin, BarcodeKitHostApi, ActivityAware {
         textureEntry = null
         preview = null
         cameraProvider = null
+        maskedAnalyzer = null
 
 
     }

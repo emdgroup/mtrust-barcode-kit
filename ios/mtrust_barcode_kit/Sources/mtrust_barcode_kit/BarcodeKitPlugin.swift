@@ -26,17 +26,69 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     var height: Int32 = 0
     var width: Int32 = 0
     
-    private let metadataObjectsQueue = DispatchQueue(label: "metadata objects queue", attributes: [], target: nil)
+    // Callback queue for AVCaptureVideoDataOutputSampleBufferDelegate. Kept
+    // off the main queue so the (potentially expensive) OCR work triggered
+    // from it never contends with UI work - this is separate from the
+    // deadlock fix below, and doesn't affect `AVCaptureMetadataOutput`
+    // (barcode) detection, which uses its own delegate queue (kept as the
+    // main queue - see `metadataOutput.setMetadataObjectsDelegate` in
+    // `openCamera`).
+    private let sampleBufferQueue = DispatchQueue(label: "com.barcodekit.SampleBufferQueue")
+
+    // Runs `AVCaptureSession.stopRunning()` (see `closeCamera`) and
+    // `startRunning()` (see `openCamera`) off the main thread - both are
+    // documented by Apple as blocking calls that must never be invoked on
+    // the main thread. This alone is enough to avoid the deadlock that
+    // otherwise occurs when `stopRunning()` is called synchronously on the
+    // main thread while a capture output's delegate callback queue is also
+    // the main queue (`stopRunning()` blocks until in-flight delegate
+    // callbacks drain, so calling it on the same queue as those callbacks
+    // self-deadlocks) - since neither `openCamera`/`closeCamera` themselves
+    // ever block waiting on `sessionQueue`, the main thread stays free to
+    // keep servicing `AVCaptureMetadataOutput`'s main-queue delegate
+    // callbacks while `stopRunning()` drains them from this queue. Since
+    // `openCamera`/`closeCamera` are invoked directly from Pigeon's
+    // main-thread message handlers, using one shared serial queue for both
+    // also keeps close-then-open sequencing (see
+    // `BarcodeKitView.didUpdateWidget`) processed in order without
+    // overlapping hardware start/stop calls.
+    private let sessionQueue = DispatchQueue(label: "com.barcodekit.SessionQueue")
 
     private let visionQueue = DispatchQueue(label: "com.barcodekit.VisionQueue")
     private let semaphore = DispatchSemaphore(value: 1)
-    private let metadataOutput = AVCaptureMetadataOutput()
+
+    // Recreated on every `openCamera()` call (see there) rather than reused
+    // across sessions - an `AVCaptureOutput` can only be attached to one
+    // `AVCaptureSession` at a time, and reusing a single instance raced
+    // with the previous session's (now asynchronous, see `sessionQueue`)
+    // teardown removing it from the old session: `canAddOutput` would
+    // silently return false if the old removal hadn't completed yet,
+    // silently skipping metadata object type / delegate setup entirely -
+    // symptom: camera opens fine, but nothing is ever scanned.
+    private var metadataOutput = AVCaptureMetadataOutput()
     
     var ocrEnabled = false
 
-    
+    // Minimum VNRecognizedText.confidence (0..1) required to forward a
+    // recognized text observation to Dart. 0 (default) means no filtering.
+    var minTextConfidence: Float = 0
+
+    // Normalized (0..1) region (shared by both barcode detection and OCR),
+    // in the same "display" orientation as width/height. Since this plugin
+    // pins the capture connection's videoOrientation to .portrait (see
+    // openCamera), the delivered CVPixelBuffer's own dimensions already
+    // match width/height directly - unlike Android, no per-frame rotation
+    // un-mapping is needed here.
+    var maskRegion = MaskRegion(left: 0.15, top: 0.35, right: 0.85, bottom: 0.65)
+
     private let flutterApi: BarcodeKitFlutterApi
-    
+
+    // Tagged for easy filtering in the Xcode/device console (Console.app:
+    // search "[BarcodeKit]").
+    private func log(_ message: String) {
+        print("[BarcodeKit] \(message)")
+    }
+
     // Setup  pigeon
     public static func register(with registrar: FlutterPluginRegistrar) {
         let messenger : FlutterBinaryMessenger = registrar.messenger()
@@ -57,7 +109,58 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     func setOCREnabled(enabled: Bool)  throws {
         ocrEnabled = enabled
     }
-    
+
+    // Restricts both barcode detection (AVCaptureMetadataOutput.rectOfInterest)
+    // and OCR (VNRecognizeTextRequest.regionOfInterest, applied per-request in
+    // captureOutput) to region.
+    func setMaskRegion(region: MaskRegion) throws {
+        maskRegion = region
+        applyMaskRegionToMetadataOutput()
+    }
+
+    // AVCaptureMetadataOutput.rectOfInterest is normalized (0..1, top-left
+    // origin) relative to a landscape image with the home button on the
+    // right, regardless of device/connection orientation - the exact same
+    // landscape-right sensor space already used for barcode/OCR corner
+    // point conversion elsewhere in this file (see `metadataOutput(_:
+    // didOutput:from:)` and the OCR corner mapping in `captureOutput`),
+    // where a normalized sensor point (x_sensor, y_sensor) maps to our
+    // portrait "display" pixel space as:
+    //   x_display = width - y_sensor * width
+    //   y_display = x_sensor * height
+    // `maskRegion` is expressed in that same portrait display space,
+    // already normalized (0..1, top-left origin) relative to width/height.
+    // Inverting the transform above (dropping the width/height factors
+    // since both sides are already normalized fractions) gives:
+    //   x_sensor = y_display_frac
+    //   y_sensor = 1 - x_display_frac
+    // Applying this to all four corners of `maskRegion` and taking the
+    // bounding rect produces the `rectOfInterest` below.
+    //
+    // This previously used a throwaway `AVCaptureVideoPreviewLayer` purely
+    // for its `metadataOutputRectConverted(fromLayerRect:)` helper, which
+    // was intended to avoid hand-deriving this transform - but in practice
+    // it logged `CGAffineTransformInvert: singular matrix` and always
+    // produced a degenerate zero-area rect (since the layer was never
+    // attached to any view/window), silently making barcode detection
+    // impossible regardless of format. Computing the transform directly
+    // avoids the dependency on that layer entirely.
+    private func applyMaskRegionToMetadataOutput() {
+        guard captureSession != nil else { return }
+
+        let region = maskRegion
+        metadataOutput.rectOfInterest = CGRect(
+            x: CGFloat(region.top),
+            y: CGFloat(1 - region.right),
+            width: CGFloat(region.bottom - region.top),
+            height: CGFloat(region.right - region.left)
+        )
+    }
+
+    func setMinTextConfidence(minConfidence: Double) throws {
+        minTextConfidence = Float(minConfidence)
+    }
+
     // No op on iOS
     func pauseCamera() {
 
@@ -73,7 +176,10 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     func openCamera(direction: CameraLensDirection, formats: [Int64], fallbackDirections: [CameraLensDirection], completion: @escaping (Result<CameraOpenResponse, Error>) -> Void) {
         textureId = registry!.register(self)
         captureSession = AVCaptureSession()
-        
+        // Recreated per session - see the comment on the `metadataOutput`
+        // property.
+        metadataOutput = AVCaptureMetadataOutput()
+
         // Try the primary direction first, then fallback directions
         let directionsToTry = [direction] + fallbackDirections
         var selectedDevice: AVCaptureDevice? = nil
@@ -98,12 +204,13 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
         }
         
         if selectedDevice == nil {
+            log("openCamera: FAILED - no suitable camera found for directions \(directionsToTry)")
             completion(.failure(NSError(domain: "BarcodeKit", code: 1, userInfo: ["message": "No suitable camera found from the provided directions"])))
             return
         }
         
         device = selectedDevice!
-        
+
         device!.addObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode), options: .new, context: nil)
         captureSession!.beginConfiguration()
         // Add device input.
@@ -111,13 +218,14 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
             let input = try AVCaptureDeviceInput(device: device!)
             captureSession!.addInput(input)
         } catch {
+            log("openCamera: FAILED to create/add device input: \(error)")
             completion(.failure(error))
         }
         // Add video output.
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         videoOutput.alwaysDiscardsLateVideoFrames = true
-        videoOutput.setSampleBufferDelegate(self, queue: DispatchQueue.main)
+        videoOutput.setSampleBufferDelegate(self, queue: sampleBufferQueue)
         captureSession!.addOutput(videoOutput)
         for connection in videoOutput.connections {
             connection.videoOrientation = .portrait
@@ -130,52 +238,78 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
         if(captureSession!.canAddOutput(metadataOutput)){
             captureSession!.addOutput(metadataOutput)
             
-            
             if(formats.isEmpty){
                 metadataOutput.metadataObjectTypes = metadataOutput.availableMetadataObjectTypes
             }else{
                 var objectTypes: [AVMetadataObject.ObjectType] = []
-                
 
                 for formatItem in formats {
-                    let objectType = barcodeMap[BarcodeFormat(rawValue: Int(formatItem))!]
+                    let objectType = BarcodeFormat(rawValue: Int(formatItem)).flatMap { barcodeMap[$0] }
                     if(objectType != nil){
                         objectTypes.append(objectType!)
                     }
                 }
                 metadataOutput.metadataObjectTypes = objectTypes
             }
-            
 
-
-            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main )
-            print("Added capture output for metadata")
+            // Kept on the main queue - unlike the video sample buffer
+            // delegate, moving this to a background queue was found to make
+            // AVCaptureMetadataOutput's on-device barcode detection
+            // unreliable (it stopped firing) despite Apple's docs not
+            // explicitly requiring the main queue here. The deadlock this
+            // plugin previously had is instead avoided by running
+            // `stopRunning()` off the main thread (see `sessionQueue`),
+            // which is sufficient on its own since the main thread is never
+            // blocked waiting on it.
+            metadataOutput.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+        } else {
+            log("openCamera: FAILED - could not add metadata output to capture session, barcode scanning will not work for this session")
         }
         
         
-        DispatchQueue.global(qos: .background).async {
-            self.captureSession!.commitConfiguration()
-            self.captureSession!.startRunning()
-            
-            let dimensions = CMVideoFormatDescriptionGetDimensions(self.device!.activeFormat.formatDescription)
+        // `startRunning()` can take a noticeable amount of time on some
+        // devices, so it - like the original implementation - is deferred
+        // off the main thread here. See the comment on `sessionQueue` for
+        // why this alone is enough to avoid the previous deadlock, even
+        // though the metadata delegate queue is main.
+        //
+        // Local copies of session/device/textureId are captured here
+        // (rather than reading `self.captureSession`/`self.device`/
+        // `self.textureId` inside the closure) so that a rapid subsequent
+        // closeCamera()+openCamera() call - which would reassign those
+        // shared instance properties on the main thread before this
+        // dispatched block runs - can't cause this block to operate on the
+        // wrong (newer, unrelated) session or crash on a nil force-unwrap.
+        let openedSession = captureSession!
+        let openedDevice = device!
+        let openedTextureId = textureId!
+        sessionQueue.async {
+            openedSession.commitConfiguration()
+            openedSession.startRunning()
+
+            let dimensions = CMVideoFormatDescriptionGetDimensions(openedDevice.activeFormat.formatDescription)
             self.width = dimensions.height
             self.height = dimensions.width
-            
+
+            // width/height are only known now; applyMaskRegionToMetadataOutput
+            // itself no longer depends on them directly, but dispatching to
+            // main keeps this consistent with other UI-adjacent state
+            // updates.
+            DispatchQueue.main.async {
+                self.applyMaskRegionToMetadataOutput()
+            }
+
             completion(.success(CameraOpenResponse(
-                supportsFlash: self.device!.hasTorch,
+                supportsFlash: openedDevice.hasTorch,
                 height: Int64(self.height),
                 width: Int64(self.width),
-                textureId: String(self.textureId!)
-                
-                
+                textureId: String(openedTextureId)
             )))
         }
-        
-        
     }
 
-     var lastFrameTime: Double = 0
-    
+    var lastFrameTime: Double = 0
+
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
@@ -183,9 +317,22 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
             return
         }
 
+        // `closeCamera()` resets `textureId`/`registry` state synchronously
+        // on the main thread as soon as it's called, while the *old*
+        // session's `stopRunning()` (which is what actually stops frame
+        // delivery) is deferred to a background queue - see `closeCamera`.
+        // A frame from the dying old session can therefore still arrive
+        // here, on `sampleBufferQueue`, in the brief window after
+        // `textureId` has already been nil'd out but before the old
+        // session has actually stopped. Previously this force-unwrapped
+        // `textureId!` and crashed; just drop the stale frame instead.
+        guard let registry = registry, let textureId = textureId else {
+            return
+        }
+
         latestBuffer = pixelBuffer
 
-        registry!.textureFrameAvailable(textureId!)
+        registry.textureFrameAvailable(textureId)
 
         // Throttle frame processing to improve performance
         let currentTime = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
@@ -212,19 +359,62 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
                     let request = VNRecognizeTextRequest { (request, error) in
                         guard let observations = request.results as? [VNRecognizedTextObservation] else { return }
                         
-                        for observation in observations {
+                        for (lineIndex, observation) in observations.enumerated() {
                             // Get the top recognized text
                             guard let topCandidate = observation.topCandidates(1).first else { continue }
-                            
-                            
+
+                            if topCandidate.confidence < self.minTextConfidence { continue }
+
+                            // Vision's boundingBox is normalized (0..1) relative to the
+                            // *full* image regardless of regionOfInterest, with a
+                            // bottom-left origin - unlike AVFoundation metadata's
+                            // top-left, landscape-sensor-based normalized space. We
+                            // first flip to a top-left origin, then reuse the exact
+                            // same landscape-sensor -> portrait-pixel transform applied
+                            // to barcode corners below, so OCR and barcode geometry end
+                            // up in the same coordinate space Dart already expects.
+                            let box = observation.boundingBox
+                            let rawCorners: [(x: CGFloat, y: CGFloat)] = [
+                                (box.minX, 1 - box.minY), // bottom-left (top-left post-flip)
+                                (box.maxX, 1 - box.minY), // bottom-right
+                                (box.maxX, 1 - box.maxY), // top-right (bottom-right post-flip)
+                                (box.minX, 1 - box.maxY), // top-left
+                            ]
+                            let corners = rawCorners.map { corner in
+                                CornerPoint(
+                                    x: CGFloat(self.width) - corner.y * CGFloat(self.width),
+                                    y: corner.x * CGFloat(self.height)
+                                )
+                            }
+
+                            let detectedText = DetectedText(
+                                text: topCandidate.string,
+                                confidence: Double(topCandidate.confidence),
+                                cornerPoints: corners,
+                                // Vision has no block concept - every observation is
+                                // effectively its own line-level block.
+                                blockIndex: 0,
+                                lineIndex: Int64(lineIndex)
+                            )
+
                             DispatchQueue.main.async {
-                                self.flutterApi.onTextDetected(text: topCandidate.string,completion: {_ in 
+                                self.flutterApi.onTextDetected(detectedText: detectedText, completion: {_ in 
                                     
                                 })
                             }
                             
                         }
                     }
+
+                    // Vision's regionOfInterest uses a bottom-left origin,
+                    // unlike our top-left-origin maskRegion.
+                    let region = self.maskRegion
+                    request.regionOfInterest = CGRect(
+                        x: CGFloat(region.left),
+                        y: CGFloat(1 - region.bottom),
+                        width: CGFloat(region.right - region.left),
+                        height: CGFloat(region.bottom - region.top)
+                    )
                     
                     do {
                         // Perform the text recognition request
@@ -239,38 +429,61 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
     }
     
     func closeCamera() throws {
-        if(captureSession != nil){
-            captureSession!.stopRunning()
-            for input in captureSession!.inputs {
-                captureSession!.removeInput(input)
-            }
-            for output in captureSession!.outputs {
-                captureSession!.removeOutput(output)
-            }
-        }
-        device?.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode))
-        if(textureId != nil){
-            registry?.unregisterTexture(textureId!)
-        }
-        
-        
+        // Capture local references to the current session/device/texture so
+        // the actual teardown can happen asynchronously (see below), while
+        // resetting instance state synchronously below lets a subsequent
+        // openCamera() call - which Dart issues immediately after
+        // closeCamera() without awaiting it, see
+        // BarcodeKitView.didUpdateWidget - proceed right away without
+        // observing or racing with this teardown.
+        let sessionToClose = captureSession
+        let deviceToRelease = device
+        let textureIdToUnregister = textureId
+
         analyzeMode = 0
         latestBuffer = nil
         captureSession = nil
         device = nil
         textureId = nil
-            
-            
+
+        sessionQueue.async { [weak self] in
+            // AVCaptureSession.stopRunning() is a blocking call that waits
+            // for any in-flight delegate callbacks to finish, and must
+            // never be called on the main thread - see the comment on
+            // `sessionQueue`. This is called from the Pigeon `closeCamera`
+            // method handler, which always runs on the main thread, so it
+            // must be dispatched off of it here.
+            if let session = sessionToClose {
+                session.stopRunning()
+                session.beginConfiguration()
+                for input in session.inputs {
+                    session.removeInput(input)
+                }
+                for output in session.outputs {
+                    session.removeOutput(output)
+                }
+                session.commitConfiguration()
+            }
+            if let deviceToRelease = deviceToRelease, let self = self {
+                deviceToRelease.removeObserver(self, forKeyPath: #keyPath(AVCaptureDevice.torchMode))
+            }
+
+            if let textureIdToUnregister = textureIdToUnregister {
+                DispatchQueue.main.async {
+                    self?.registry?.unregisterTexture(textureIdToUnregister)
+                }
+            }
+        }
     }
     
     
     
+    // Called on the main queue (see openCamera's
+    // setMetadataObjectsDelegate), so it's safe to call directly into
+    // Flutter/Pigeon APIs below without an extra thread hop.
     public func metadataOutput(_: AVCaptureMetadataOutput, didOutput: [AVMetadataObject], from: AVCaptureConnection){
-
-        
         for metadataObject in didOutput {
             if let barcodeMetadataObject = metadataObject as? AVMetadataMachineReadableCodeObject {
-        
                 let barcode = DetectedBarcode(
                     rawValue: barcodeMetadataObject.rawValue?.base64EncodedString(),
                     cornerPoints: barcodeMetadataObject.corners.map({cornerpoint in
@@ -281,7 +494,7 @@ public class BarcodeKitPlugin: NSObject, FlutterPlugin , BarcodeKitHostApi, Flut
                     })?.key,
                     textValue: barcodeMetadataObject.stringValue
                 )
-                flutterApi.onBarcodeScanned(barcode: barcode,completion: {_ in 
+                flutterApi.onBarcodeScanned(barcode: barcode, completion: {_ in 
                     
                 })
             }

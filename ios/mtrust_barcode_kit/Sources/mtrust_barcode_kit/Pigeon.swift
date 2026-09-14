@@ -179,6 +179,95 @@ struct CornerPoint {
   }
 }
 
+/// A single recognized line of OCR text, with geometry mirroring
+/// [DetectedBarcode] so both can be positioned/compared using the same
+/// full camera-texture pixel coordinate space (post sensor-rotation,
+/// "display" orientation, matching the width/height returned by
+/// [BarcodeKitHostApi.openCamera]).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct DetectedText {
+  /// The recognized text content of this line.
+  var text: String
+  /// Recognition confidence (0..1). On Android this is ML Kit's
+  /// `Text.Line.getConfidence()`. On iOS this is
+  /// `VNRecognizedText.confidence` for the top candidate.
+  var confidence: Double
+  /// The four corners of the line's bounding quadrilateral, in the same
+  /// coordinate space as [DetectedBarcode.cornerPoints].
+  var cornerPoints: [CornerPoint?]
+  /// Groups lines belonging to the same OCR text block (ML Kit only).
+  /// Always 0 on iOS, since Vision has no block concept - only individual
+  /// line-level observations.
+  var blockIndex: Int64
+  /// The line's order within its block (reading order).
+  var lineIndex: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> DetectedText? {
+    let text = pigeonVar_list[0] as! String
+    let confidence = pigeonVar_list[1] as! Double
+    let cornerPoints = pigeonVar_list[2] as! [CornerPoint?]
+    let blockIndex = pigeonVar_list[3] as! Int64
+    let lineIndex = pigeonVar_list[4] as! Int64
+
+    return DetectedText(
+      text: text,
+      confidence: confidence,
+      cornerPoints: cornerPoints,
+      blockIndex: blockIndex,
+      lineIndex: lineIndex
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      text,
+      confidence,
+      cornerPoints,
+      blockIndex,
+      lineIndex,
+    ]
+  }
+}
+
+/// A normalized (0..1) rectangular region of a camera frame, expressed in
+/// the same "display" orientation as the width/height returned by
+/// [BarcodeKitHostApi.openCamera] (i.e. already accounting for sensor
+/// rotation, before any further widget-level rotation).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct MaskRegion {
+  var left: Double
+  var top: Double
+  var right: Double
+  var bottom: Double
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> MaskRegion? {
+    let left = pigeonVar_list[0] as! Double
+    let top = pigeonVar_list[1] as! Double
+    let right = pigeonVar_list[2] as! Double
+    let bottom = pigeonVar_list[3] as! Double
+
+    return MaskRegion(
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      left,
+      top,
+      right,
+      bottom,
+    ]
+  }
+}
+
 private class PigeonPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -200,6 +289,10 @@ private class PigeonPigeonCodecReader: FlutterStandardReader {
       return DetectedBarcode.fromList(self.readValue() as! [Any?])
     case 133:
       return CornerPoint.fromList(self.readValue() as! [Any?])
+    case 134:
+      return DetectedText.fromList(self.readValue() as! [Any?])
+    case 135:
+      return MaskRegion.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -222,6 +315,12 @@ private class PigeonPigeonCodecWriter: FlutterStandardWriter {
       super.writeValue(value.toList())
     } else if let value = value as? CornerPoint {
       super.writeByte(133)
+      super.writeValue(value.toList())
+    } else if let value = value as? DetectedText {
+      super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? MaskRegion {
+      super.writeByte(135)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -248,6 +347,15 @@ class PigeonPigeonCodec: FlutterStandardMessageCodec, @unchecked Sendable {
 protocol BarcodeKitHostApi {
   func openCamera(direction: CameraLensDirection, formats: [Int64], fallbackDirections: [CameraLensDirection], completion: @escaping (Result<CameraOpenResponse, Error>) -> Void)
   func setOCREnabled(enabled: Bool) throws
+  /// Restricts both barcode detection and OCR (when enabled) to [region] of
+  /// the camera frame instead of scanning the entire frame, matching the
+  /// visible mask cutout. Android only for now.
+  func setMaskRegion(region: MaskRegion) throws
+  /// Discards recognized text lines whose confidence score is below
+  /// [minConfidence] (0..1) before forwarding them via
+  /// `BarcodeKitFlutterApi.onTextDetected`. Defaults to 0 (no filtering) if
+  /// never called.
+  func setMinTextConfidence(minConfidence: Double) throws
   func closeCamera() throws
   func pauseCamera() throws
   func resumeCamera() throws
@@ -293,6 +401,43 @@ class BarcodeKitHostApiSetup {
       }
     } else {
       setOCREnabledChannel.setMessageHandler(nil)
+    }
+    /// Restricts both barcode detection and OCR (when enabled) to [region] of
+    /// the camera frame instead of scanning the entire frame, matching the
+    /// visible mask cutout. Android only for now.
+    let setMaskRegionChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMaskRegion\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setMaskRegionChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let regionArg = args[0] as! MaskRegion
+        do {
+          try api.setMaskRegion(region: regionArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setMaskRegionChannel.setMessageHandler(nil)
+    }
+    /// Discards recognized text lines whose confidence score is below
+    /// [minConfidence] (0..1) before forwarding them via
+    /// `BarcodeKitFlutterApi.onTextDetected`. Defaults to 0 (no filtering) if
+    /// never called.
+    let setMinTextConfidenceChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMinTextConfidence\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setMinTextConfidenceChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let minConfidenceArg = args[0] as! Double
+        do {
+          try api.setMinTextConfidence(minConfidence: minConfidenceArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setMinTextConfidenceChannel.setMessageHandler(nil)
     }
     let closeCameraChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.closeCamera\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
@@ -354,8 +499,8 @@ class BarcodeKitHostApiSetup {
 protocol BarcodeKitFlutterApiProtocol {
   /// Caleld from the host when a barcode is detected.
   func onBarcodeScanned(barcode barcodeArg: DetectedBarcode, completion: @escaping (Result<Void, PigeonError>) -> Void)
-  /// Called from the host when text is detected.
-  func onTextDetected(text textArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void)
+  /// Called from the host when a line of text is detected.
+  func onTextDetected(detectedText detectedTextArg: DetectedText, completion: @escaping (Result<Void, PigeonError>) -> Void)
   /// Called from the host when the torch state changes.
   func onTorchStateChanged(enabled enabledArg: Bool, completion: @escaping (Result<Void, PigeonError>) -> Void)
 }
@@ -388,11 +533,11 @@ class BarcodeKitFlutterApi: BarcodeKitFlutterApiProtocol {
       }
     }
   }
-  /// Called from the host when text is detected.
-  func onTextDetected(text textArg: String, completion: @escaping (Result<Void, PigeonError>) -> Void) {
+  /// Called from the host when a line of text is detected.
+  func onTextDetected(detectedText detectedTextArg: DetectedText, completion: @escaping (Result<Void, PigeonError>) -> Void) {
     let channelName: String = "dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitFlutterApi.onTextDetected\(messageChannelSuffix)"
     let channel = FlutterBasicMessageChannel(name: channelName, binaryMessenger: binaryMessenger, codec: codec)
-    channel.sendMessage([textArg] as [Any?]) { response in
+    channel.sendMessage([detectedTextArg] as [Any?]) { response in
       guard let listResponse = response as? [Any?] else {
         completion(.failure(createConnectionError(withChannelName: channelName)))
         return

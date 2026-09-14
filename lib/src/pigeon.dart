@@ -146,6 +146,102 @@ class CornerPoint {
   }
 }
 
+/// A single recognized line of OCR text, with geometry mirroring
+/// [DetectedBarcode] so both can be positioned/compared using the same
+/// full camera-texture pixel coordinate space (post sensor-rotation,
+/// "display" orientation, matching the width/height returned by
+/// [BarcodeKitHostApi.openCamera]).
+class DetectedText {
+  DetectedText({
+    required this.text,
+    required this.confidence,
+    required this.cornerPoints,
+    required this.blockIndex,
+    required this.lineIndex,
+  });
+
+  /// The recognized text content of this line.
+  String text;
+
+  /// Recognition confidence (0..1). On Android this is ML Kit's
+  /// `Text.Line.getConfidence()`. On iOS this is
+  /// `VNRecognizedText.confidence` for the top candidate.
+  double confidence;
+
+  /// The four corners of the line's bounding quadrilateral, in the same
+  /// coordinate space as [DetectedBarcode.cornerPoints].
+  List<CornerPoint?> cornerPoints;
+
+  /// Groups lines belonging to the same OCR text block (ML Kit only).
+  /// Always 0 on iOS, since Vision has no block concept - only individual
+  /// line-level observations.
+  int blockIndex;
+
+  /// The line's order within its block (reading order).
+  int lineIndex;
+
+  Object encode() {
+    return <Object?>[
+      text,
+      confidence,
+      cornerPoints,
+      blockIndex,
+      lineIndex,
+    ];
+  }
+
+  static DetectedText decode(Object result) {
+    result as List<Object?>;
+    return DetectedText(
+      text: result[0]! as String,
+      confidence: result[1]! as double,
+      cornerPoints: (result[2] as List<Object?>?)!.cast<CornerPoint?>(),
+      blockIndex: result[3]! as int,
+      lineIndex: result[4]! as int,
+    );
+  }
+}
+
+/// A normalized (0..1) rectangular region of a camera frame, expressed in
+/// the same "display" orientation as the width/height returned by
+/// [BarcodeKitHostApi.openCamera] (i.e. already accounting for sensor
+/// rotation, before any further widget-level rotation).
+class MaskRegion {
+  MaskRegion({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+
+  double left;
+
+  double top;
+
+  double right;
+
+  double bottom;
+
+  Object encode() {
+    return <Object?>[
+      left,
+      top,
+      right,
+      bottom,
+    ];
+  }
+
+  static MaskRegion decode(Object result) {
+    result as List<Object?>;
+    return MaskRegion(
+      left: result[0]! as double,
+      top: result[1]! as double,
+      right: result[2]! as double,
+      bottom: result[3]! as double,
+    );
+  }
+}
+
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
@@ -169,6 +265,12 @@ class _PigeonCodec extends StandardMessageCodec {
     }    else if (value is CornerPoint) {
       buffer.putUint8(133);
       writeValue(buffer, value.encode());
+    }    else if (value is DetectedText) {
+      buffer.putUint8(134);
+      writeValue(buffer, value.encode());
+    }    else if (value is MaskRegion) {
+      buffer.putUint8(135);
+      writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
     }
@@ -189,6 +291,10 @@ class _PigeonCodec extends StandardMessageCodec {
         return DetectedBarcode.decode(readValue(buffer)!);
       case 133: 
         return CornerPoint.decode(readValue(buffer)!);
+      case 134: 
+        return DetectedText.decode(readValue(buffer)!);
+      case 135: 
+        return MaskRegion.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
     }
@@ -244,6 +350,59 @@ class BarcodeKitHostApi {
       binaryMessenger: pigeonVar_binaryMessenger,
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[enabled]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Restricts both barcode detection and OCR (when enabled) to [region] of
+  /// the camera frame instead of scanning the entire frame, matching the
+  /// visible mask cutout. Android only for now.
+  Future<void> setMaskRegion(MaskRegion region) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMaskRegion$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[region]);
+    final List<Object?>? pigeonVar_replyList =
+        await pigeonVar_sendFuture as List<Object?>?;
+    if (pigeonVar_replyList == null) {
+      throw _createConnectionError(pigeonVar_channelName);
+    } else if (pigeonVar_replyList.length > 1) {
+      throw PlatformException(
+        code: pigeonVar_replyList[0]! as String,
+        message: pigeonVar_replyList[1] as String?,
+        details: pigeonVar_replyList[2],
+      );
+    } else {
+      return;
+    }
+  }
+
+  /// Discards recognized text lines whose confidence score is below
+  /// [minConfidence] (0..1) before forwarding them via
+  /// `BarcodeKitFlutterApi.onTextDetected`. Defaults to 0 (no filtering) if
+  /// never called.
+  Future<void> setMinTextConfidence(double minConfidence) async {
+    final String pigeonVar_channelName = 'dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitHostApi.setMinTextConfidence$pigeonVar_messageChannelSuffix';
+    final BasicMessageChannel<Object?> pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[minConfidence]);
     final List<Object?>? pigeonVar_replyList =
         await pigeonVar_sendFuture as List<Object?>?;
     if (pigeonVar_replyList == null) {
@@ -358,8 +517,8 @@ abstract class BarcodeKitFlutterApi {
   /// Caleld from the host when a barcode is detected.
   void onBarcodeScanned(DetectedBarcode barcode);
 
-  /// Called from the host when text is detected.
-  void onTextDetected(String text);
+  /// Called from the host when a line of text is detected.
+  void onTextDetected(DetectedText detectedText);
 
   /// Called from the host when the torch state changes.
   void onTorchStateChanged(bool enabled);
@@ -402,11 +561,11 @@ abstract class BarcodeKitFlutterApi {
           assert(message != null,
           'Argument for dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitFlutterApi.onTextDetected was null.');
           final List<Object?> args = (message as List<Object?>?)!;
-          final String? arg_text = (args[0] as String?);
-          assert(arg_text != null,
-              'Argument for dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitFlutterApi.onTextDetected was null, expected non-null String.');
+          final DetectedText? arg_detectedText = (args[0] as DetectedText?);
+          assert(arg_detectedText != null,
+              'Argument for dev.flutter.pigeon.mtrust_barcode_kit.BarcodeKitFlutterApi.onTextDetected was null, expected non-null DetectedText.');
           try {
-            api.onTextDetected(arg_text!);
+            api.onTextDetected(arg_detectedText!);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

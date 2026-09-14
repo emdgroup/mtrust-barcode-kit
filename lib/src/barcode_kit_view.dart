@@ -124,6 +124,7 @@ class BarcodeKitView extends StatefulWidget {
     this.children,
     this.cameraFit = BoxFit.cover,
     this.enableOCR = false,
+    this.minTextConfidence = 0,
     this.direction = CameraLensDirection.back,
     this.fallbackDirections = const [CameraLensDirection.front],
     this.widgetAboveMask,
@@ -145,8 +146,15 @@ class BarcodeKitView extends StatefulWidget {
   /// Whether to run OCR
   final bool enableOCR;
 
-  /// Callback for when text is detected
-  final void Function(String detectedText)? onTextDetected;
+  /// Minimum confidence (0..1) a recognized text line must have to be
+  /// forwarded to [onTextDetected]. Defaults to 0 (no filtering). Note that
+  /// on Android this relies on ML Kit's `Text.Line.getConfidence()`, which
+  /// returns 0 on devices with an outdated Google Play services install -
+  /// indistinguishable from a genuinely low-confidence line.
+  final double minTextConfidence;
+
+  /// Callback for when a line of text is detected
+  final void Function(DetectedText detectedText)? onTextDetected;
 
   /// Widget that gets transformed to be placed on top of the barcode.
   /// Needs to be 1x1 in size to work properly
@@ -225,6 +233,10 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
 
   late AnimationController _animationController;
 
+  // The last MaskRegion sent to the native side, used to avoid spamming the
+  // platform channel with redundant updates on every layout pass.
+  Rect? _lastMaskRegionSent;
+
   @override
   void initState() {
     assert(widget.formats.isNotEmpty, 'Needs at least one format to scan');
@@ -251,6 +263,7 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
     } else {
       _barcodeKitPlugin.setOCREnabled(false);
     }
+    _barcodeKitPlugin.setMinTextConfidence(widget.minTextConfidence);
 
     try {
       final value = await _barcodeKitPlugin.openCamera(
@@ -279,9 +292,9 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
           });
         }
       }
-      ..onTextDetectedCallback = (text) {
+      ..onTextDetectedCallback = (detectedText) {
         if (!widget.paused) {
-          widget.onTextDetected?.call(text);
+          widget.onTextDetected?.call(detectedText);
         }
       };
   }
@@ -307,6 +320,10 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
 
     if (widget.enableOCR != oldWidget.enableOCR) {
       _barcodeKitPlugin.setOCREnabled(widget.enableOCR);
+    }
+
+    if (widget.minTextConfidence != oldWidget.minTextConfidence) {
+      _barcodeKitPlugin.setMinTextConfidence(widget.minTextConfidence);
     }
 
     if (!setEquals(widget.formats, _lastFormats) ||
@@ -431,29 +448,119 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
     );
   }
 
+  /// Computes the normalized (0..1) camera-frame region covered by the mask
+  /// cutout, and forwards it to the native side to restrict both barcode
+  /// detection and OCR to that area (see `MaskedAnalyzer` on Android; not yet
+  /// implemented on iOS).
+  ///
+  /// [renderSize] is the actual measured size of the Stack that hosts the
+  /// camera preview + mask. [quarterTurns] is the number of quarter turns
+  /// applied by [_wrapInRotatedBox] (0 when not following rotation, e.g. in
+  /// [_buildStaticCamera]).
+  ///
+  /// The math relies on the fact that both the mask and the RotatedBox pivot
+  /// are centered on the Stack's center: rotating a centered rect by a
+  /// multiple of 90 degrees is equivalent to swapping its width/height, so we
+  /// can express the mask's extents directly in the pre-rotation coordinate
+  /// space that [FittedBox] operates in, without tracking any translation.
+  /// [applyBoxFit] mirrors exactly what [FittedBox] itself uses internally,
+  /// so this stays correct for any [BarcodeKitView.cameraFit] value.
+  void _updateMaskRegion(Size renderSize, int quarterTurns) {
+    if (textureId == null || width <= 0 || height <= 0) return;
+    if (renderSize.width <= 0 || renderSize.height <= 0) return;
+
+    final textureSize = Size(width, height);
+
+    final rotated = quarterTurns.isOdd;
+    final contentSize =
+        rotated ? Size(renderSize.height, renderSize.width) : renderSize;
+    final maskSizeInContent = rotated
+        ? Size(widget.maskHeight, widget.maskWidth)
+        : Size(widget.maskWidth, widget.maskHeight);
+
+    final fitted = applyBoxFit(widget.cameraFit, textureSize, contentSize);
+    if (fitted.destination.width <= 0 ||
+        fitted.destination.height <= 0 ||
+        fitted.source.width <= 0 ||
+        fitted.source.height <= 0) {
+      return;
+    }
+
+    final scaleX = fitted.destination.width / fitted.source.width;
+    final scaleY = fitted.destination.height / fitted.source.height;
+
+    // FittedBox defaults to Alignment.center (never overridden here), so the
+    // visible source sub-rect is centered on the texture's own center too.
+    final sourceCenter = Offset(textureSize.width / 2, textureSize.height / 2);
+
+    final regionRect = Rect.fromCenter(
+      center: sourceCenter,
+      width: maskSizeInContent.width / scaleX,
+      height: maskSizeInContent.height / scaleY,
+    );
+
+    final normalized = Rect.fromLTRB(
+      (regionRect.left / textureSize.width).clamp(0.0, 1.0),
+      (regionRect.top / textureSize.height).clamp(0.0, 1.0),
+      (regionRect.right / textureSize.width).clamp(0.0, 1.0),
+      (regionRect.bottom / textureSize.height).clamp(0.0, 1.0),
+    );
+
+    const epsilon = 0.001;
+    final last = _lastMaskRegionSent;
+    if (last != null &&
+        (normalized.left - last.left).abs() < epsilon &&
+        (normalized.top - last.top).abs() < epsilon &&
+        (normalized.right - last.right).abs() < epsilon &&
+        (normalized.bottom - last.bottom).abs() < epsilon) {
+      return;
+    }
+    _lastMaskRegionSent = normalized;
+
+    _barcodeKitPlugin.setMaskRegion(
+      MaskRegion(
+        left: normalized.left,
+        top: normalized.top,
+        right: normalized.right,
+        bottom: normalized.bottom,
+      ),
+    );
+  }
+
   Widget _buildCamera() {
     return NativeDeviceOrientationReader(
       builder: (context) {
-        return Stack(
-          fit: StackFit.expand,
-          children: [
-            _buildAnimationWrapper(
-              context,
-              _wrapInRotatedBox(
-                orientation: NativeDeviceOrientationReader.orientation(
+        final orientation = NativeDeviceOrientationReader.orientation(
+          context,
+        );
+        final quarterTurns = kIsWeb ? 0 : _getQuarterTurns(orientation);
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _updateMaskRegion(constraints.biggest, quarterTurns);
+              }
+            });
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                _buildAnimationWrapper(
                   context,
+                  _wrapInRotatedBox(
+                    orientation: orientation,
+                    child: FittedBox(
+                      fit: widget.cameraFit,
+                      clipBehavior: Clip.hardEdge,
+                      child: _buildTextureWrapper(),
+                    ),
+                  ),
                 ),
-                child: FittedBox(
-                  fit: widget.cameraFit,
-                  clipBehavior: Clip.hardEdge,
-                  child: _buildTextureWrapper(),
-                ),
-              ),
-            ),
-            if (widget.mask) _buildMask(),
-            _buildMaskAdditions(),
-            ...?widget.children,
-          ],
+                if (widget.mask) _buildMask(),
+                _buildMaskAdditions(),
+                ...?widget.children,
+              ],
+            );
+          },
         );
       },
     );
@@ -486,22 +593,31 @@ class _BarcodeKitViewState extends State<BarcodeKitView>
   }
 
   Widget _buildStaticCamera() {
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        _buildAnimationWrapper(
-          context,
-          SizedBox.expand(
-            child: FittedBox(
-              fit: widget.cameraFit,
-              child: _buildTextureWrapper(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _updateMaskRegion(constraints.biggest, 0);
+          }
+        });
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildAnimationWrapper(
+              context,
+              SizedBox.expand(
+                child: FittedBox(
+                  fit: widget.cameraFit,
+                  child: _buildTextureWrapper(),
+                ),
+              ),
             ),
-          ),
-        ),
-        if (widget.mask) _buildMask(),
-        _buildMaskAdditions(),
-        ...?widget.children,
-      ],
+            if (widget.mask) _buildMask(),
+            _buildMaskAdditions(),
+            ...?widget.children,
+          ],
+        );
+      },
     );
   }
 

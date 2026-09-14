@@ -9,7 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 typedef OnBarcodeScannedCallback = void Function(DetectedBarcode barcode);
 
 /// Callback for when a text is detected.
-typedef OnTextDetectedCallback = void Function(String text);
+typedef OnTextDetectedCallback = void Function(DetectedText detectedText);
 
 /// The main class of the plugin.
 class BarcodeKit extends BarcodeKitFlutterApi {
@@ -144,8 +144,22 @@ class BarcodeKit extends BarcodeKitFlutterApi {
     _host.setOCREnabled(enabled);
   }
 
+  /// Restricts both barcode detection and OCR (when enabled) to a normalized
+  /// (0..1) region of the camera frame, matching the same "display"
+  /// orientation reported by [openCamera]'s width/height.
+  void setMaskRegion(MaskRegion region) {
+    _host.setMaskRegion(region);
+  }
+
+  /// Discards recognized text lines whose confidence score is below
+  /// [minConfidence] (0..1) before [onTextDetectedCallback] is invoked.
+  /// Defaults to 0 (no filtering).
+  void setMinTextConfidence(double minConfidence) {
+    _host.setMinTextConfidence(minConfidence);
+  }
+
   @override
-  void onTextDetected(String text) {
-    onTextDetectedCallback?.call(text);
+  void onTextDetected(DetectedText detectedText) {
+    onTextDetectedCallback?.call(detectedText);
   }
 }
