@@ -1,3 +1,73 @@
+## 2.1.0-4
+Released on: 9/14/2026, changelog automatically generated.
+
+
+### Features
+
+- add OCR text geometry and identifier classification for lot/product numbers ([159146d](commit/159146d))
+
+### API Changes
+
+#### 💣 Breaking changes
+
+**`class` BarcodeKit** ([lib/src/barcode_kit.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6c1e62c053047fbc8d516040f9274ece318a413ee92aa5cfd3e6672096caa00c))
+- 🔄 Property type changed: `onTextDetectedCallback`
+- ❌ Param removed in method `onTextDetected`: `text` (positional, required)
+- ❇️ Param added in method `onTextDetected`: `detectedText` (positional, required)
+
+**`class` BarcodeKitFlutterApi** ([lib/src/pigeon.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6f7883e658ce56db7488001ea24120f6db668ed2793be484d6f3bd7070bb06d3))
+- ❌ Param removed in method `onTextDetected`: `text` (positional, required)
+- ❇️ Param added in method `onTextDetected`: `detectedText` (positional, required)
+
+**`class` BarcodeKitView** ([lib/src/barcode_kit_view.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-8cd8d66c2e6b0f5dbbee58d73962a9e2819ccb420602079f63fcc2089108f8d3))
+- 🔄 Param type changed in default constructor: `onTextDetected` (`void Function(String)?` → `void Function(DetectedText)?`)
+- 🔄 Property type changed: `onTextDetected`
+
+**`typedef` OnTextDetectedCallback** ([lib/src/barcode_kit.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6c1e62c053047fbc8d516040f9274ece318a413ee92aa5cfd3e6672096caa00c))
+- 🔄 Typedef type changed: OnTextDetectedCallback
+
+#### ✨ Minor changes
+
+**`class` BarcodeKit** ([lib/src/barcode_kit.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6c1e62c053047fbc8d516040f9274ece318a413ee92aa5cfd3e6672096caa00c))
+- ❇️ Methods added: `setMaskRegion`, `setMinTextConfidence`
+
+**`class` BarcodeKitHostApi** ([lib/src/pigeon.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6f7883e658ce56db7488001ea24120f6db668ed2793be484d6f3bd7070bb06d3))
+- ❇️ Methods added: `setMaskRegion`, `setMinTextConfidence`
+
+**`class` BarcodeKitView** ([lib/src/barcode_kit_view.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-8cd8d66c2e6b0f5dbbee58d73962a9e2819ccb420602079f63fcc2089108f8d3))
+- ❇️ Param added in default constructor: `minTextConfidence` (named, optional, default: 0)
+- ❇️ Property added: `minTextConfidence`
+
+**`class` DetectedText** ([lib/src/pigeon.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6f7883e658ce56db7488001ea24120f6db668ed2793be484d6f3bd7070bb06d3))
+- ❇️ Class added: `DetectedText`
+
+**`class` IdentifierClassifier** ([lib/src/identifier_classifier.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-f79a4f5ca75f75ad37baaf98660422df27a122e4049203025650370d1e30f291))
+- ❇️ Class added: `IdentifierClassifier`
+
+**`class` IdentifierClassifierConfig** ([lib/src/identifier_classifier.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-f79a4f5ca75f75ad37baaf98660422df27a122e4049203025650370d1e30f291))
+- ❇️ Class added: `IdentifierClassifierConfig`
+
+**`class` MaskRegion** ([lib/src/pigeon.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-6f7883e658ce56db7488001ea24120f6db668ed2793be484d6f3bd7070bb06d3))
+- ❇️ Class added: `MaskRegion`
+
+**`class` ScoredToken** ([lib/src/identifier_classifier.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-f79a4f5ca75f75ad37baaf98660422df27a122e4049203025650370d1e30f291))
+- ❇️ Class added: `ScoredToken`
+
+#### 👀 Patch changes
+
+**`class` _ActiveLabel** ([lib/src/identifier_classifier.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-f79a4f5ca75f75ad37baaf98660422df27a122e4049203025650370d1e30f291))
+- ❇️ Class added: `_ActiveLabel`
+
+**`class` _BarcodeKitViewState** ([lib/src/barcode_kit_view.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-8cd8d66c2e6b0f5dbbee58d73962a9e2819ccb420602079f63fcc2089108f8d3))
+- ❇️ Property added: `_lastMaskRegionSent`
+- ❇️ Method added: `_updateMaskRegion`
+
+**`class` _Point** ([lib/src/identifier_classifier.dart](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-f79a4f5ca75f75ad37baaf98660422df27a122e4049203025650370d1e30f291))
+- ❇️ Class added: `_Point`
+
+**`meta` pubspec.yaml** ([pubspec.yaml](https://github.com/emdgroup/mtrust-barcode-kit/compare/v2.1.0-3..v2.1.0-4#diff-8b7e9df87668ffa6a04b32e1769a33434999e54ae081c52e5d943c541d4c0d25))
+- 🤖 Minimum Android SDK version decreased: from `16` to `0`
+
 ## 2.1.0-3
 Released on: 8/18/2026, changelog automatically generated.
 
