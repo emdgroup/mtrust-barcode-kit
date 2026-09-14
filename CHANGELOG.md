@@ -1,3 +1,11 @@
+## 2.1.0-6
+Released on: 9/14/2026, changelog automatically generated.
+
+
+### Bug Fixes
+
+- preserve barcode format/textValue for iOS Data Matrix scans ([465b091](commit/465b091))
+
 ## 2.1.0-5
 Released on: 9/14/2026, changelog automatically generated.
 
