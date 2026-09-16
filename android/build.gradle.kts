@@ -37,12 +37,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    sourceSets {
-        getByName("main") {
-            java.srcDirs("src/main/kotlin")
-        }
-    }
-
+    // No explicit sourceSets block: `src/main/kotlin` is already a default
+    // recognized source directory once the Kotlin Gradle plugin is applied
+    // (as it is here via the classpath dependency + `kotlin { }` block
+    // below), so this was redundant. It's also actively broken under AGP
+    // 8.9-8.12 (the range many consuming apps are still pinned to, since
+    // AGP 9.x+ has other breaking changes) - `sourceSets { getByName("main")
+    // { ... } }` throws:
+    //   java.lang.ClassCastException: class
+    //   com.android.build.gradle.internal.api.DefaultAndroidSourceSet_Decorated
+    //   cannot be cast to class com.android.build.api.dsl.AndroidLibrarySourceSet
+    // This is a known AGP internal source-set bridging regression for
+    // library modules in that AGP version range. Verified removing this
+    // block (letting the default `src/main/kotlin` convention apply
+    // instead) builds successfully under AGP 8.12.3 without any source
+    // files being dropped.
     defaultConfig {
         minSdk = 24
     }
